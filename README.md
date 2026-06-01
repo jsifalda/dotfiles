@@ -14,7 +14,7 @@ works unchanged on any server.
 ## Install
 
 ```bash
-git clone https://github.com/craftengineer/dotfiles ~/dotfiles
+git clone https://github.com/jsifalda/dotfiles ~/dotfiles
 ~/dotfiles/install.sh
 ```
 
