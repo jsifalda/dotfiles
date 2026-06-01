@@ -1,0 +1,11 @@
+# Per-machine site → directory map for site-tmux.
+# One `site=dir` per line. '~' expands to $HOME. Lines starting with '#' are ignored.
+# This file is NOT committed — copy it to your config dir and edit per machine:
+#   ${XDG_CONFIG_HOME:-$HOME/.config}/site-tmux/sites.conf
+#
+# Any site not listed here (or running `site-tmux` with no argument) falls back to $HOME.
+#
+# Example (uncomment / adapt to the machine):
+# obsidian-vault-api=/root/obsidian-vault-api
+# vaults=/root/vaults
+# myproject=~/code/myproject

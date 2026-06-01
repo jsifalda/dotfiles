@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# site-tmux [site] — attach to (or create) the tmux session for <site>, in its folder.
+#                    With no argument: opens a 'home' session in $HOME.
+#   site-tmux --update — pull the latest dotfiles and re-run install.sh, then exit.
+#
+# Additive only: creating/attaching a tmux session does not affect any background services.
+# Also ensures a `claude remote-control --name <site>` session is running (own window),
+# so Claude is ready (controllable from claude.ai/code or the mobile app) right after open.
+#
+# The site→directory map is per-machine and lives outside this repo at
+#   ${XDG_CONFIG_HOME:-$HOME/.config}/site-tmux/sites.conf
+# Format: one `site=dir` per line. '#' comments and blank lines are ignored.
+# Unknown or missing sites fall back to $HOME, so the script is safe on any server.
+set -euo pipefail
+
+# --- self-update: resolve this script's real path → repo root → git pull + reinstall ---
+if [[ "${1:-}" == "--update" ]]; then
+    self="$(readlink -f "${BASH_SOURCE[0]}")"   # follows the install symlink into the repo
+    repo="$(cd "$(dirname "$self")/.." && pwd)"  # bin/ → repo root
+    if [[ ! -d "$repo/.git" ]]; then
+        echo "site-tmux: --update needs a git checkout; $repo is not a git repo." >&2
+        exit 1
+    fi
+    git -C "$repo" pull --ff-only
+    exec "$repo/install.sh"
+fi
+
+site="${1:-${SITE:-}}"
+config="${XDG_CONFIG_HOME:-$HOME/.config}/site-tmux/sites.conf"
+
+# Resolve the working directory for this site.
+dir=""
+if [[ -n "$site" && -f "$config" ]]; then
+    # match `site=dir`, tolerate surrounding whitespace; last match wins.
+    while IFS='=' read -r key val; do
+        key="${key#"${key%%[![:space:]]*}"}"; key="${key%"${key##*[![:space:]]}"}"
+        [[ -z "$key" || "$key" == \#* ]] && continue
+        if [[ "$key" == "$site" ]]; then
+            val="${val#"${val%%[![:space:]]*}"}"; val="${val%"${val##*[![:space:]]}"}"
+            dir="${val/#\~/$HOME}"
+        fi
+    done < "$config"
+fi
+
+if [[ -z "$site" ]]; then
+    site="home"; dir="$HOME"          # no arg → 'home' session in $HOME
+elif [[ -z "$dir" ]]; then
+    dir="$HOME"                       # unknown site → forgiving default
+fi
+
+# Create the session (window 0 = shell) if it does not exist yet.
+if ! tmux has-session -t "$site" 2>/dev/null; then
+    tmux new-session -d -s "$site" -c "$dir"
+fi
+
+# Ensure the remote-control window is running; (re)create it if absent.
+# remain-on-exit keeps a crashed remote-control visible (with its error) instead of
+# the window silently vanishing; --debug-file persists why it exited.
+if ! tmux list-windows -t "$site" -F '#{window_name}' 2>/dev/null | grep -qx "claude"; then
+    rclog="$HOME/.local/state/site-tmux"; mkdir -p "$rclog"
+    tmux new-window -d -t "$site" -c "$dir" -n claude
+    tmux set-window-option -t "$site:claude" remain-on-exit on
+    tmux send-keys -t "$site:claude" \
+        "exec claude remote-control --name '$site' --debug-file '$rclog/$site-rc.log'" Enter
+fi
+
+exec tmux attach-session -t "$site"
