@@ -53,6 +53,12 @@ if ! tmux has-session -t "$site" 2>/dev/null; then
     tmux new-session -d -s "$site" -c "$dir"
 fi
 
+# A 'claude' window whose remote-control exited stays visible (remain-on-exit) but dead.
+# It still exists by name, so kill it first and let the create path below respawn it.
+if tmux list-panes -t "$site:claude" -F '#{pane_dead}' 2>/dev/null | grep -qx 1; then
+    tmux kill-window -t "$site:claude"
+fi
+
 # Ensure the remote-control window is running; (re)create it if absent.
 # remain-on-exit keeps a crashed remote-control visible (with its error) instead of
 # the window silently vanishing; --debug-file persists why it exited.

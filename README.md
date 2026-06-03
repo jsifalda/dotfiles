@@ -68,6 +68,10 @@ site-tmux obsidian-vault-api  # session in the mapped directory
 site-tmux anything-else       # unknown site → falls back to $HOME
 ```
 
+The `claude remote-control` window uses `remain-on-exit on`, so if it exits it stays
+visible as a dead pane (with its log) instead of vanishing. Re-running `site-tmux <site>`
+detects that dead `claude` window and respawns it.
+
 ## Update
 
 ```bash
