@@ -44,8 +44,9 @@ That file is **outside the repo and gitignored** (`site-tmux/sites.conf`), seede
 (no arg → `home` session in `$HOME`). On create it also spawns a `claude` window running
 `claude remote-control --name <site>` so the session is controllable from claude.ai/code or mobile.
 That window uses `remain-on-exit on` + `--debug-file ~/.local/state/site-tmux/<site>-rc.log` so a
-crash stays visible with its log rather than vanishing. A dead `claude` window (remote-control
-exited) is detected via `#{pane_dead}` and respawned on the next `site-tmux <site>` run.
+crash stays visible with its log rather than vanishing. On each run, dead or duplicate `claude`
+windows (remote-control exited, `#{pane_dead}`) are reaped by `window_id` and a single live one
+is ensured — never killing a healthy remote-control.
 
 `site-tmux --update` resolves the install symlink back to the repo, runs `git pull --ff-only`, and
 re-execs `install.sh`. The repo must be a git checkout for this to work.

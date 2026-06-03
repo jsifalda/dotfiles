@@ -53,16 +53,22 @@ if ! tmux has-session -t "$site" 2>/dev/null; then
     tmux new-session -d -s "$site" -c "$dir"
 fi
 
-# A 'claude' window whose remote-control exited stays visible (remain-on-exit) but dead.
-# It still exists by name, so kill it first and let the create path below respawn it.
-if tmux list-panes -t "$site:claude" -F '#{pane_dead}' 2>/dev/null | grep -qx 1; then
-    tmux kill-window -t "$site:claude"
-fi
+# Ensure exactly one healthy 'claude' window running `claude remote-control`.
+# remain-on-exit keeps a crashed remote-control visible (with its log) instead of the
+# window vanishing — but its pane is then dead. Reap any dead 'claude' windows by id
+# (handles duplicates; never touches a live one), then (re)create only if none is live.
+# --debug-file persists why it exited.
+have_live_claude=0
+while read -r wid wname dead; do
+    [[ "$wname" == "claude" ]] || continue
+    if [[ "$dead" == 1 ]]; then
+        tmux kill-window -t "$wid"            # dead: reap by id (name is ambiguous)
+    else
+        have_live_claude=1                    # a healthy remote-control already exists
+    fi
+done < <(tmux list-panes -s -t "$site" -F '#{window_id} #{window_name} #{pane_dead}' 2>/dev/null)
 
-# Ensure the remote-control window is running; (re)create it if absent.
-# remain-on-exit keeps a crashed remote-control visible (with its error) instead of
-# the window silently vanishing; --debug-file persists why it exited.
-if ! tmux list-windows -t "$site" -F '#{window_name}' 2>/dev/null | grep -qx "claude"; then
+if [[ "$have_live_claude" -eq 0 ]]; then
     rclog="$HOME/.local/state/site-tmux"; mkdir -p "$rclog"
     tmux new-window -d -t "$site" -c "$dir" -n claude
     tmux set-window-option -t "$site:claude" remain-on-exit on
