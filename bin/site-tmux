@@ -4,8 +4,17 @@
 #   site-tmux --update — pull the latest dotfiles and re-run install.sh, then exit.
 #
 # Additive only: creating/attaching a tmux session does not affect any background services.
-# Also ensures a `claude remote-control --name <site>` session is running (own window),
-# so Claude is ready (controllable from claude.ai/code or the mobile app) right after open.
+# Also ensures a `claude remote-control --name <site>` session is running in its own
+# `claude-rc` window, so Claude is ready (controllable from claude.ai/code or the mobile
+# app) right after open. If the site's directory has not yet been trusted in Claude, the
+# window shows a one-time instruction instead — remote-control cannot start in an
+# untrusted workspace, so run `claude` there once to accept the trust dialog.
+#
+# Two one-time consents gate remote-control; after each, it stays headless:
+#   1. Per-directory workspace trust (above) — accept once per new site.
+#   2. Per-machine "Enable Remote Control? (y/n)" — the first time remote-control runs on
+#      a machine it asks this; answer `y` once (it persists as remoteDialogSeen in
+#      ~/.claude.json and applies to every site afterwards).
 #
 # The site→directory map is per-machine and lives outside this repo at
 #   ${XDG_CONFIG_HOME:-$HOME/.config}/site-tmux/sites.conf
@@ -48,32 +57,66 @@ elif [[ -z "$dir" ]]; then
     dir="$HOME"                       # unknown site → forgiving default
 fi
 
+# Resolve claude once, here, using this script's PATH — the remote-control window's own
+# shell may not have ~/.local/bin yet (e.g. mid-install), so don't rely on it finding claude.
+clbin="$(command -v claude || true)"
+
+# Is <dir> already trusted in Claude? remote-control refuses to start in an untrusted
+# workspace and there is no flag to bypass it, so we must check before launching.
+# 0 = trusted, non-zero = not (or unknown). node ships with claude, so it's always present.
+dir_trusted() {
+    local d="$1" cfg="$HOME/.claude.json"
+    [[ -f "$cfg" ]] || return 1
+    node -e 'const fs=require("fs");const[c,d]=process.argv.slice(1);try{const j=JSON.parse(fs.readFileSync(c,"utf8"));process.exit(j.projects?.[d]?.hasTrustDialogAccepted===true?0:1)}catch{process.exit(1)}' "$cfg" "$d"
+}
+
 # Create the session (window 0 = shell) if it does not exist yet.
 if ! tmux has-session -t "$site" 2>/dev/null; then
     tmux new-session -d -s "$site" -c "$dir"
 fi
 
-# Ensure exactly one healthy 'claude' window running `claude remote-control`.
-# remain-on-exit keeps a crashed remote-control visible (with its log) instead of the
-# window vanishing — but its pane is then dead. Reap any dead 'claude' windows by id
-# (handles duplicates; never touches a live one), then (re)create only if none is live.
-# --debug-file persists why it exited.
-have_live_claude=0
+# Ensure the remote-control window (`claude-rc`) is present and alive; (re)create it when
+# missing or when its pane has died. The distinct name + automatic-rename off keep it from
+# colliding with the interactive shell window, which tmux auto-renames to `claude` once you
+# start `claude` in it (that collision used to make this guard skip a dead RC window).
+#
+# First reap any DEAD remote-control windows by id — both the old `claude` name (leftovers
+# from sessions started before the rename) and crashed/duplicate `claude-rc`. We only ever
+# kill dead ones: a LIVE window named `claude` is the user's interactive shell, never RC,
+# so liveness below is keyed strictly on `claude-rc` and never inferred from `claude`.
 while read -r wid wname dead; do
-    [[ "$wname" == "claude" ]] || continue
-    if [[ "$dead" == 1 ]]; then
-        tmux kill-window -t "$wid"            # dead: reap by id (name is ambiguous)
-    else
-        have_live_claude=1                    # a healthy remote-control already exists
-    fi
+    case "$wname" in claude|claude-rc) ;; *) continue ;; esac
+    [[ "$dead" == 1 ]] && tmux kill-window -t "$wid"
 done < <(tmux list-panes -s -t "$site" -F '#{window_id} #{window_name} #{pane_dead}' 2>/dev/null)
 
-if [[ "$have_live_claude" -eq 0 ]]; then
+# After reaping, a surviving `claude-rc` window is necessarily live → RC already running.
+need_rc=1
+if tmux list-windows -t "$site" -F '#{window_name}' 2>/dev/null | grep -qx claude-rc; then
+    need_rc=0
+fi
+
+if [[ "$need_rc" == 1 ]]; then
     rclog="$HOME/.local/state/site-tmux"; mkdir -p "$rclog"
-    tmux new-window -d -t "$site" -c "$dir" -n claude
-    tmux set-window-option -t "$site:claude" remain-on-exit on
-    tmux send-keys -t "$site:claude" \
-        "exec claude remote-control --name '$site' --debug-file '$rclog/$site-rc.log'" Enter
+    # remain-on-exit keeps a crashed remote-control visible (with its error) instead of the
+    # window silently vanishing; --debug-file persists why it exited.
+    tmux new-window -d -t "$site" -c "$dir" -n claude-rc
+    tmux set-window-option -t "$site:claude-rc" automatic-rename off
+    tmux set-window-option -t "$site:claude-rc" allow-rename off
+    tmux set-window-option -t "$site:claude-rc" remain-on-exit on
+
+    if [[ -z "$clbin" ]]; then
+        warn="claude not found on PATH — remote-control not started. Add ~/.local/bin to PATH."
+        echo "site-tmux: $warn" >&2
+        tmux send-keys -t "$site:claude-rc" "echo '$warn'" Enter
+    elif dir_trusted "$dir"; then
+        tmux send-keys -t "$site:claude-rc" \
+            "exec '$clbin' remote-control --name '$site' --debug-file '$rclog/$site-rc.log'" Enter
+    else
+        warn="workspace not trusted — run  claude  in $dir once to accept the trust dialog, then re-run  site-tmux $site"
+        echo "site-tmux: $warn" >&2
+        # No exec: leave a live shell so the instruction stays visible in the window.
+        tmux send-keys -t "$site:claude-rc" "echo 'site-tmux: $warn'" Enter
+    fi
 fi
 
 exec tmux attach-session -t "$site"
