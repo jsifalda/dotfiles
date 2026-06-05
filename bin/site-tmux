@@ -79,13 +79,20 @@ fi
 # missing or when its pane has died. The distinct name + automatic-rename off keep it from
 # colliding with the interactive shell window, which tmux auto-renames to `claude` once you
 # start `claude` in it (that collision used to make this guard skip a dead RC window).
+#
+# First reap any DEAD remote-control windows by id — both the old `claude` name (leftovers
+# from sessions started before the rename) and crashed/duplicate `claude-rc`. We only ever
+# kill dead ones: a LIVE window named `claude` is the user's interactive shell, never RC,
+# so liveness below is keyed strictly on `claude-rc` and never inferred from `claude`.
+while read -r wid wname dead; do
+    case "$wname" in claude|claude-rc) ;; *) continue ;; esac
+    [[ "$dead" == 1 ]] && tmux kill-window -t "$wid"
+done < <(tmux list-panes -s -t "$site" -F '#{window_id} #{window_name} #{pane_dead}' 2>/dev/null)
+
+# After reaping, a surviving `claude-rc` window is necessarily live → RC already running.
 need_rc=1
 if tmux list-windows -t "$site" -F '#{window_name}' 2>/dev/null | grep -qx claude-rc; then
-    if [[ "$(tmux display -p -t "$site:claude-rc" '#{pane_dead}' 2>/dev/null)" == 1 ]]; then
-        tmux kill-window -t "$site:claude-rc"
-    else
-        need_rc=0
-    fi
+    need_rc=0
 fi
 
 if [[ "$need_rc" == 1 ]]; then

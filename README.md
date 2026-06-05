@@ -11,6 +11,30 @@ Currently ships:
 The site→directory map is **per-machine** and lives outside this repo, so the same script
 works unchanged on any server.
 
+## Why this setup
+
+The goal is **one source of truth for your shell tooling that follows you to every server**,
+without copy-paste drift. The design choices that make that work:
+
+- **Git, not scp.** The repo is the canonical copy. New machine → `clone` + `install.sh`.
+  Changed something → commit once, `--update` everywhere. No "which box has the latest
+  version?" guessing, and full history/rollback for free.
+- **Symlinks, not copies.** `install.sh` links the repo's files into place
+  (`~/.local/bin/site-tmux`, `~/.tmux.conf`) instead of copying them. So a `git pull` takes
+  effect *instantly* — the live file **is** the repo file. Nothing to re-copy, no stale duplicates.
+- **Machine-agnostic code, per-machine config.** The script is identical on every host; only
+  the `site=dir` map in `~/.config/site-tmux/sites.conf` differs. That file stays *outside* the
+  repo (gitignored), so machine-specific paths never leak into a public repo and updates never
+  clobber your local setup.
+- **Safe to adopt and re-run.** `install.sh` is idempotent and backs up any real file it would
+  replace to `*.bak`, so installing (or re-installing) never destroys existing config.
+- **`~/dotfiles`, not a fixed path.** Cloning to `~/dotfiles` resolves correctly for whatever
+  user runs it (`/root/dotfiles` for root, `/home/you/dotfiles` otherwise) — the same install
+  command is portable across hosts and users.
+
+Net effect: fix a bug or add a tmux tweak once, push it, and every server picks it up with a
+single `site-tmux --update` — while each box keeps its own project paths.
+
 ## Install
 
 ```bash
@@ -43,6 +67,10 @@ site-tmux                     # 'home' session in $HOME
 site-tmux obsidian-vault-api  # session in the mapped directory
 site-tmux anything-else       # unknown site → falls back to $HOME
 ```
+
+The `claude remote-control` window uses `remain-on-exit on`, so if it exits it stays
+visible as a dead pane (with its log) instead of vanishing. Re-running `site-tmux <site>`
+detects that dead `claude` window and respawns it.
 
 ## Update
 
