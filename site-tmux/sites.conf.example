@@ -9,3 +9,9 @@
 # obsidian-vault-api=/root/obsidian-vault-api
 # vaults=/root/vaults
 # myproject=~/code/myproject
+#
+# Optional: friendly label for this machine in claude.ai/code. Remote Control shows each
+# device as <hostname>:<site>:<hash>; @prefix overrides the <hostname> segment for Claude
+# only (remote-control runs in its own UTS namespace), leaving the real system hostname
+# untouched. Reserved key — not a site. Needs root + `unshare`; otherwise it's ignored.
+# @prefix=mybox
