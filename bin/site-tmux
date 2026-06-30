@@ -37,6 +37,20 @@ fi
 site="${1:-${SITE:-}}"
 config="${XDG_CONFIG_HOME:-$HOME/.config}/site-tmux/sites.conf"
 
+# Optional per-machine prefix for remote-control session names (claude.ai/code shows them as
+# <prefix>:<site>:<hash>). Set with a reserved `@prefix=<name>` line in sites.conf. When unset we
+# pass no flag, so the CLI falls back to $CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX, then hostname.
+# Read independently of $site: the no-arg `home` case skips the dir loop below.
+prefix=""
+if [[ -f "$config" ]]; then
+    while IFS='=' read -r key val; do
+        key="${key#"${key%%[![:space:]]*}"}"; key="${key%"${key##*[![:space:]]}"}"
+        [[ "$key" == "@prefix" ]] || continue
+        val="${val#"${val%%[![:space:]]*}"}"; val="${val%"${val##*[![:space:]]}"}"
+        prefix="$val"
+    done < "$config"
+fi
+
 # Resolve the working directory for this site.
 dir=""
 if [[ -n "$site" && -f "$config" ]]; then
@@ -109,8 +123,12 @@ if [[ "$need_rc" == 1 ]]; then
         echo "site-tmux: $warn" >&2
         tmux send-keys -t "$site:claude-rc" "echo '$warn'" Enter
     elif dir_trusted "$dir"; then
+        # Pass --remote-control-session-name-prefix only when @prefix is configured (single-quote
+        # the value so spaces/odd chars survive the send-keys string).
+        prefix_opt=""
+        [[ -n "$prefix" ]] && prefix_opt=" --remote-control-session-name-prefix '$prefix'"
         tmux send-keys -t "$site:claude-rc" \
-            "exec '$clbin' remote-control --name '$site' --debug-file '$rclog/$site-rc.log'" Enter
+            "exec '$clbin' remote-control --name '$site'$prefix_opt --debug-file '$rclog/$site-rc.log'" Enter
     else
         warn="workspace not trusted — run  claude  in $dir once to accept the trust dialog, then re-run  site-tmux $site"
         echo "site-tmux: $warn" >&2

@@ -30,6 +30,8 @@ That file is **outside the repo and gitignored** (`site-tmux/sites.conf`), seede
 - Never commit real machine paths — they belong in the example file as commented samples only.
 - `install.sh` seeds `sites.conf` only if absent and never overwrites it; updates must not touch it.
 - Unknown/missing sites fall back to `$HOME` by design — the script must stay safe on any server.
+- `sites.conf` also carries an optional reserved `@prefix=<name>` line (not a site) — the
+  remote-control session-name prefix shown in claude.ai/code, defaulting to the hostname when unset.
 
 ## install.sh invariants (keep these when editing)
 
@@ -46,7 +48,9 @@ That file is **outside the repo and gitignored** (`site-tmux/sites.conf`), seede
 That window uses `remain-on-exit on` + `--debug-file ~/.local/state/site-tmux/<site>-rc.log` so a
 crash stays visible with its log rather than vanishing. On each run, dead or duplicate `claude`
 windows (remote-control exited, `#{pane_dead}`) are reaped by `window_id` and a single live one
-is ensured — never killing a healthy remote-control.
+is ensured — never killing a healthy remote-control. When `sites.conf` defines `@prefix`, it is
+passed through as `--remote-control-session-name-prefix`; otherwise no flag is sent and the CLI
+default (hostname) applies.
 
 `site-tmux --update` resolves the install symlink back to the repo, runs `git pull --ff-only`, and
 re-execs `install.sh`. The repo must be a git checkout for this to work.

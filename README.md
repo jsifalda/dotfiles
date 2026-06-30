@@ -60,6 +60,21 @@ vaults=/root/vaults
 
 Make sure `~/.local/bin` is on your `PATH`.
 
+### Naming this machine in claude.ai/code
+
+By default `claude remote-control` names its sessions `<hostname>:<site>:<hash>`, so they show up
+under the raw server hostname (e.g. `ubuntu-4gb-nbg1-2:…`). To use a friendlier label, add a
+reserved `@prefix` line to this machine's `sites.conf`:
+
+```ini
+@prefix=mybox     # → sessions read as  mybox:home:…  mybox:vaults:…
+```
+
+It applies to every site on the machine. Leave it out to keep the hostname default (the CLI also
+honours `$CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX` when `@prefix` is unset). Already-running
+remote-control windows keep their old name until respawned (`tmux kill-window -t <site>:claude-rc`
+then `site-tmux <site>`).
+
 ## Usage
 
 ```bash

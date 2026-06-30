@@ -9,3 +9,8 @@
 # obsidian-vault-api=/root/obsidian-vault-api
 # vaults=/root/vaults
 # myproject=~/code/myproject
+#
+# Optional: friendly prefix for `claude remote-control` session names shown in claude.ai/code
+# (otherwise defaults to this machine's hostname). Applies to every site on this machine; names
+# read as <prefix>:<site>:<hash>. Reserved key — not a site:
+# @prefix=mybox
