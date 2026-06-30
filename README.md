@@ -60,6 +60,22 @@ vaults=/root/vaults
 
 Make sure `~/.local/bin` is on your `PATH`.
 
+### Naming this machine in claude.ai/code
+
+Remote Control lists each device as `<hostname>:<site>:<hash>`, so by default it shows the raw
+server hostname (e.g. `ubuntu-4gb-nbg1-2:…`). To show a friendlier label, add a reserved
+`@prefix` line to this machine's `sites.conf`:
+
+```ini
+@prefix=mybox     # → device shows as  mybox:home:…  mybox:vaults:…
+```
+
+It applies to every site on the machine. The override is **Claude-only**: `site-tmux` launches
+`remote-control` inside its own UTS namespace and sets that namespace's hostname, so the bridge
+reports `mybox` while the real system hostname is unchanged. Needs root + `unshare` (otherwise the
+line is ignored and the default hostname is used). Already-running bridges keep their old label
+until respawned (`tmux kill-window -t <site>:claude-rc` then `site-tmux <site>`).
+
 ## Usage
 
 ```bash

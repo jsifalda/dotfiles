@@ -37,6 +37,21 @@ fi
 site="${1:-${SITE:-}}"
 config="${XDG_CONFIG_HOME:-$HOME/.config}/site-tmux/sites.conf"
 
+# Optional per-machine label shown in claude.ai/code. Remote Control names its device as
+# <hostname>:<dir>:<hash>, where <hostname> is the OS hostname (os.hostname()). A reserved
+# `@prefix=<name>` line in sites.conf overrides just that first segment WITHOUT touching the
+# real system hostname — we launch remote-control in its own UTS namespace (see below). Read
+# independently of $site, since the no-arg `home` case skips the dir loop.
+prefix=""
+if [[ -f "$config" ]]; then
+    while IFS='=' read -r key val; do
+        key="${key#"${key%%[![:space:]]*}"}"; key="${key%"${key##*[![:space:]]}"}"
+        [[ "$key" == "@prefix" ]] || continue
+        val="${val#"${val%%[![:space:]]*}"}"; val="${val%"${val##*[![:space:]]}"}"
+        prefix="$val"
+    done < "$config"
+fi
+
 # Resolve the working directory for this site.
 dir=""
 if [[ -n "$site" && -f "$config" ]]; then
@@ -109,8 +124,18 @@ if [[ "$need_rc" == 1 ]]; then
         echo "site-tmux: $warn" >&2
         tmux send-keys -t "$site:claude-rc" "echo '$warn'" Enter
     elif dir_trusted "$dir"; then
-        tmux send-keys -t "$site:claude-rc" \
-            "exec '$clbin' remote-control --name '$site' --debug-file '$rclog/$site-rc.log'" Enter
+        rc="'$clbin' remote-control --name '$site' --debug-file '$rclog/$site-rc.log'"
+        # With @prefix set, give remote-control its own UTS-namespace hostname so the bridge
+        # reports <prefix> as its machine name — renaming only Claude's device label, never the
+        # system hostname. Needs root + unshare; otherwise fall back to the default hostname.
+        if [[ -n "$prefix" && $EUID -eq 0 ]] && command -v unshare >/dev/null 2>&1; then
+            tmux send-keys -t "$site:claude-rc" \
+                "exec unshare --uts -- bash -c \"hostname '$prefix'; exec $rc\"" Enter
+        else
+            [[ -n "$prefix" && $EUID -ne 0 ]] && \
+                echo "site-tmux: @prefix needs root (UTS namespace) — using default hostname." >&2
+            tmux send-keys -t "$site:claude-rc" "exec $rc" Enter
+        fi
     else
         warn="workspace not trusted — run  claude  in $dir once to accept the trust dialog, then re-run  site-tmux $site"
         echo "site-tmux: $warn" >&2
