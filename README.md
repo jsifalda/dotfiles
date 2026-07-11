@@ -7,6 +7,9 @@ Currently ships:
 - **`bin/site-tmux`** — attach to (or create) a per-"site" tmux session in its working
   directory, and ensure a `claude remote-control` window is running in that session.
 - **`tmux/tmux.conf`** → `~/.tmux.conf` — small set of tmux options.
+- **`bash/bash_aliases`** → `~/.bash_aliases` — portable shell aliases (git shortcuts and a
+  `claude` helper). The stock Ubuntu/Debian `~/.bashrc` sources `~/.bash_aliases`
+  automatically, so they load on any fresh box with no bashrc edits.
 
 The site→directory map is **per-machine** and lives outside this repo, so the same script
 works unchanged on any server.
@@ -42,9 +45,10 @@ git clone https://github.com/jsifalda/dotfiles ~/dotfiles
 ~/dotfiles/install.sh
 ```
 
-`install.sh` is idempotent: it symlinks `bin/site-tmux` → `~/.local/bin/site-tmux` and
-`tmux/tmux.conf` → `~/.tmux.conf` (backing up any real file it would replace to `*.bak`),
-and seeds a per-machine `~/.config/site-tmux/sites.conf` from the example.
+`install.sh` is idempotent: it symlinks `bin/site-tmux` → `~/.local/bin/site-tmux`,
+`tmux/tmux.conf` → `~/.tmux.conf`, and `bash/bash_aliases` → `~/.bash_aliases` (backing up
+any real file it would replace to `*.bak`), and seeds a per-machine
+`~/.config/site-tmux/sites.conf` from the example.
 
 Then edit this machine's site map:
 

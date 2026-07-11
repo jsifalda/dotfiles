@@ -1,0 +1,31 @@
+# bash/bash_aliases — portable shell aliases, symlinked to ~/.bash_aliases by install.sh.
+# The stock Ubuntu/Debian ~/.bashrc sources ~/.bash_aliases automatically, so these
+# load on any fresh box with no bashrc edits. Keep this file machine-agnostic:
+# no absolute paths, no secrets, nothing host-specific.
+
+# Claude Code — sandboxed, skip permission prompts.
+alias yolo='IS_SANDBOX=1 claude --dangerously-skip-permissions'
+
+# --- git ---
+alias to='git checkout'
+alias st='git status'
+alias gl="git log --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit"
+alias glog='git log --oneline --graph'
+
+# pull/push operate on the *current* branch (auto-detected), so they work on any
+# repo regardless of whether its default branch is master, main, or anything else.
+# Defined as functions because they need the branch name resolved at call time.
+
+# Pull the current branch from origin, rebasing local commits on top.
+pull() {
+    local branch
+    branch="$(git rev-parse --abbrev-ref HEAD)" || return 1
+    git pull --rebase origin "$branch"
+}
+
+# Pull, then push the current branch to origin.
+push() {
+    local branch
+    branch="$(git rev-parse --abbrev-ref HEAD)" || return 1
+    pull && git push origin "$branch"
+}
