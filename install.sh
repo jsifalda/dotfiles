@@ -21,6 +21,7 @@ link() {
 
 link "$repo/bin/site-tmux" "$HOME/.local/bin/site-tmux"
 link "$repo/tmux/tmux.conf" "$HOME/.tmux.conf"
+link "$repo/bash/bash_aliases" "$HOME/.bash_aliases"
 
 # Seed the per-machine site map if it does not exist yet (never overwrite it).
 config="${XDG_CONFIG_HOME:-$HOME/.config}/site-tmux/sites.conf"

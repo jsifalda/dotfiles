@@ -5,11 +5,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 A portable dotfiles repo (public, pushed to `github.com/jsifalda/dotfiles`) cloned to `~/dotfiles`
-on each machine. Plain Bash + a tmux config — no build, lint, or test step. Two tracked artifacts
+on each machine. Plain Bash + a tmux config — no build, lint, or test step. Three tracked artifacts
 get installed:
 
 - `bin/site-tmux` → symlinked to `~/.local/bin/site-tmux`
 - `tmux/tmux.conf` → symlinked to `~/.tmux.conf`
+- `bash/bash_aliases` → symlinked to `~/.bash_aliases` (portable shell aliases; stock bashrc
+  sources `~/.bash_aliases` automatically, so no bashrc edit is needed). Keep it machine-agnostic:
+  no absolute paths, no secrets. `pull`/`push` auto-detect the current branch to stay repo-portable.
 
 ## The core design constraint: symlinks, not copies
 
