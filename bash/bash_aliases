@@ -16,6 +16,12 @@ alias glog='git log --oneline --graph'
 # repo regardless of whether its default branch is master, main, or anything else.
 # Defined as functions because they need the branch name resolved at call time.
 
+# Older setups defined pull/push as aliases in ~/.bashrc. Aliases expand at parse time,
+# so a stale one would mangle the definitions below into a syntax error when this file
+# is re-sourced into a long-lived shell. Drop them first. (Targeted, not `unalias -a`:
+# ~/.bashrc defines the ls/grep color aliases before it sources this file.)
+unalias pull push 2>/dev/null || true
+
 # Pull the current branch from origin, rebasing local commits on top.
 pull() {
     local branch
