@@ -13,6 +13,9 @@ get installed:
 - `bash/bash_aliases` → symlinked to `~/.bash_aliases` (portable shell aliases; stock bashrc
   sources `~/.bash_aliases` automatically, so no bashrc edit is needed). Keep it machine-agnostic:
   no absolute paths, no secrets. `pull`/`push` auto-detect the current branch to stay repo-portable.
+  They are functions, so the file `unalias pull push` first — aliases expand at parse time, and a
+  stale alias from an older `~/.bashrc` would otherwise make re-sourcing a syntax error. Keep that
+  guard.
 
 ## The core design constraint: symlinks, not copies
 
