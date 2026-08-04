@@ -1,0 +1,24 @@
+# Per-machine skill sources and filters for copilot/sync-skills.js.
+# One `key=value` per line. '~' expands to $HOME. '#' starts a comment to end of line.
+# This file is NOT committed, copy it to your config dir and edit per machine:
+#   ${XDG_CONFIG_HOME:-$HOME/.config}/copilot-sync/sources.conf
+#
+# Recognized keys: source, whitelist, blacklist. Anything else is ignored.
+# Keys repeat, one line per source or skill name.
+#
+# `source` order is priority order, the first source that provides a skill name wins,
+# later sources with the same name are reported as conflicts and skipped.
+source=~/instructions/skills
+
+# Example: a second source, searched after the one above.
+# source=~/some/other/skills
+
+# `blacklist` excludes skill names from the sync (one name per line).
+# blacklist=example-skill-name
+# blacklist=another-skill-name
+
+# `whitelist` wins over blacklist: when at least one whitelist line is present,
+# ONLY those skill names are synced and blacklist lines are ignored.
+# whitelist=example-skill-name
+
+# With no config file at all, the sync falls back to ~/instructions/skills and no filters.

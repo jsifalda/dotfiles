@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# cyolow — Copilot CLI in an isolated git worktree, with .worktreeinclude parity.
+#
+# Copilot's own --worktree creates the worktree and starts the session in one
+# step, leaving no window to copy gitignored files in. So we pre-create the
+# worktree at the exact path Copilot uses, copy the .worktreeinclude entries,
+# then hand over to --worktree, which reuses what is already there.
+#
+# Usage: cyolow [name] [-- copilot args...]
+
+set -euo pipefail
+
+die() { printf 'cyolow: %s\n' "$1" >&2; exit 1; }
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) \
+  || die "not inside a git repository — worktrees need a git work tree"
+
+name=""
+if [[ $# -gt 0 && "$1" != -* && "$1" != "--" ]]; then
+  name="$1"
+  shift
+fi
+[[ "${1:-}" == "--" ]] && shift
+
+if [[ -z "$name" ]]; then
+  adjectives=(bright calm clever eager brisk quiet swift bold warm keen)
+  nouns=(otter falcon cedar harbor lantern meadow rocket signal thicket vale)
+  a=${adjectives[$((RANDOM % ${#adjectives[@]}))]}
+  n=${nouns[$((RANDOM % ${#nouns[@]}))]}
+  name="${a}-${n}-$((RANDOM % 900 + 100))"
+fi
+
+case "$name" in
+  -*|*' '*|*'~'*|*'^'*|*':'*|*'?'*|*'*'*|*'['*|*'\'*|*'..'*)
+    die "invalid worktree name: $name" ;;
+esac
+
+wt="${root}.worktrees/${name}"
+
+strip_entry() {
+  local e="${1%%#*}"
+  e="${e#"${e%%[![:space:]]*}"}"
+  e="${e%"${e##*[![:space:]]}"}"
+  printf '%s' "${e%/}"
+}
+
+copy_includes() {
+  local include="$root/.worktreeinclude" entry src dest copied=0 total=0 index=0
+  if [[ ! -f "$include" ]]; then
+    printf 'cyolow: warning — no .worktreeinclude at %s; gitignored files (.env etc.) will not be copied into the worktree\n' "$root" >&2
+    return 0
+  fi
+
+  while IFS= read -r entry || [[ -n "$entry" ]]; do
+    entry=$(strip_entry "$entry")
+    [[ -z "$entry" ]] && continue
+    total=$((total + 1))
+  done < "$include"
+
+  printf 'cyolow: copying %d .worktreeinclude entr%s into the worktree — large directories such as node_modules can take several minutes\n' \
+    "$total" "$([[ $total -eq 1 ]] && echo y || echo ies)" >&2
+
+  while IFS= read -r entry || [[ -n "$entry" ]]; do
+    entry=$(strip_entry "$entry")
+    [[ -z "$entry" ]] && continue
+    index=$((index + 1))
+    src="$root/$entry"
+    if [[ ! -e "$src" ]]; then
+      printf 'cyolow: warning — .worktreeinclude entry not found, skipping: %s\n' "$entry" >&2
+      continue
+    fi
+    dest="$wt/$entry"
+    printf 'cyolow: [%d/%d] copying %s…\n' "$index" "$total" "$entry" >&2
+    mkdir -p "$(dirname "$dest")"
+    cp -R "$src" "$dest"
+    copied=$((copied + 1))
+  done < "$include"
+  printf 'cyolow: copied %d .worktreeinclude entr%s into the worktree\n' "$copied" "$([[ $copied -eq 1 ]] && echo y || echo ies)" >&2
+}
+
+if [[ -d "$wt" ]]; then
+  printf 'cyolow: reusing existing worktree at %s\n' "$wt" >&2
+else
+  if git show-ref --verify --quiet "refs/heads/$name"; then
+    git worktree add "$wt" "$name" >&2
+  else
+    git worktree add -b "$name" "$wt" >&2
+  fi
+  copy_includes
+fi
+
+exec copilot --experimental --worktree="$name" --yolo "$@"
