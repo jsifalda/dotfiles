@@ -8,8 +8,13 @@ Currently ships:
   directory, and ensure a `claude remote-control` window is running in that session.
 - **`tmux/tmux.conf`** → `~/.tmux.conf` — small set of tmux options.
 - **`bash/bash_aliases`** → `~/.bash_aliases` — portable shell aliases (git shortcuts and a
-  `claude` helper). The stock Ubuntu/Debian `~/.bashrc` sources `~/.bash_aliases`
-  automatically, so they load on any fresh box with no bashrc edits.
+  `claude` helper, plus `yolow` and `cyolo`/`copilot` for worktree-isolated agent runs). The
+  stock Ubuntu/Debian `~/.bashrc` sources `~/.bash_aliases` automatically, so they load on any
+  fresh box with no bashrc edits.
+- **`bin/cyolow`** → `~/.local/bin/cyolow` — run GitHub Copilot CLI inside an isolated git
+  worktree, copying in the gitignored files listed in `.worktreeinclude` first.
+- **`copilot/sync-skills.js`** → `~/.copilot/hooks/sync-skills.js` — pre-launch hook that
+  mirrors Claude Code skills into Copilot CLI's skills directory.
 
 The site→directory map is **per-machine** and lives outside this repo, so the same script
 works unchanged on any server.
@@ -25,9 +30,10 @@ without copy-paste drift. The design choices that make that work:
 - **Symlinks, not copies.** `install.sh` links the repo's files into place
   (`~/.local/bin/site-tmux`, `~/.tmux.conf`) instead of copying them. So a `git pull` takes
   effect *instantly* — the live file **is** the repo file. Nothing to re-copy, no stale duplicates.
-- **Machine-agnostic code, per-machine config.** The script is identical on every host; only
-  the `site=dir` map in `~/.config/site-tmux/sites.conf` differs. That file stays *outside* the
-  repo (gitignored), so machine-specific paths never leak into a public repo and updates never
+- **Machine-agnostic code, per-machine config.** The scripts are identical on every host. What
+  differs is two config files: the `site=dir` map in `~/.config/site-tmux/sites.conf`, and the
+  skill source list in `~/.config/copilot-sync/sources.conf`. Both stay *outside* the repo
+  (gitignored), so machine-specific paths never leak into a public repo and updates never
   clobber your local setup.
 - **Safe to adopt and re-run.** `install.sh` is idempotent and backs up any real file it would
   replace to `*.bak`, so installing (or re-installing) never destroys existing config.
@@ -46,9 +52,10 @@ git clone https://github.com/jsifalda/dotfiles ~/dotfiles
 ```
 
 `install.sh` is idempotent: it symlinks `bin/site-tmux` → `~/.local/bin/site-tmux`,
-`tmux/tmux.conf` → `~/.tmux.conf`, and `bash/bash_aliases` → `~/.bash_aliases` (backing up
-any real file it would replace to `*.bak`), and seeds a per-machine
-`~/.config/site-tmux/sites.conf` from the example.
+`tmux/tmux.conf` → `~/.tmux.conf`, `bash/bash_aliases` → `~/.bash_aliases`, `bin/cyolow` →
+`~/.local/bin/cyolow`, and `copilot/sync-skills.js` → `~/.copilot/hooks/sync-skills.js`
+(backing up any real file it would replace to `*.bak`), and seeds two per-machine config files
+from their examples: `~/.config/site-tmux/sites.conf` and `~/.config/copilot-sync/sources.conf`.
 
 Then edit this machine's site map:
 
@@ -63,6 +70,24 @@ vaults=/root/vaults
 ```
 
 Make sure `~/.local/bin` is on your `PATH`.
+
+### Copilot skill sync config
+
+`copilot/sync-skills.js` mirrors Claude Code skills into Copilot CLI's skills directory before
+each `copilot` launch. Its source list is a second per-machine config,
+`~/.config/copilot-sync/sources.conf`. Same rules as `sites.conf`: it lives outside the repo,
+it is gitignored, and `install.sh` seeds it once from the example and never overwrites it.
+
+```ini
+# key=value   (repeatable keys; ~ expands to $HOME)
+source=~/instructions/skills
+blacklist=example-skill-name
+```
+
+`source` is repeatable, order sets priority, and the first source wins on a name conflict.
+`blacklist` excludes a skill by name. `whitelist` (also repeatable) wins over `blacklist` when
+non-empty and makes the sync include-only. With no config file present, the hook defaults to a
+single source, `~/instructions/skills`.
 
 ### Naming this machine in claude.ai/code
 
@@ -82,6 +107,8 @@ until respawned (`tmux kill-window -t <site>:claude-rc` then `site-tmux <site>`)
 
 ## Usage
 
+### site-tmux
+
 ```bash
 site-tmux                     # 'home' session in $HOME
 site-tmux obsidian-vault-api  # session in the mapped directory
@@ -92,6 +119,20 @@ The `claude remote-control` window uses `remain-on-exit on`, so if it exits it s
 visible as a dead pane (with its log) instead of vanishing. Re-running `site-tmux <site>`
 detects that dead `claude` window and respawns it.
 
+### cyolow
+
+```bash
+cyolow                              # random 'adjective-noun-NNN' worktree, then copilot --yolo
+cyolow my-feature                   # worktree named 'my-feature'
+cyolow my-feature -- --model gpt-5  # extra args passed through to copilot
+```
+
+`cyolow` pre-creates the worktree at the path Copilot's own `--worktree` flag uses, then copies
+the entries listed in the repo's `.worktreeinclude` into it, so gitignored files like `.env`
+come along (Copilot's own `--worktree` does not do this). It hard-fails outside a git repo,
+warns when there is no `.worktreeinclude`, and reuses an existing worktree at the same path
+instead of recreating it.
+
 ## Update
 
 ```bash
@@ -101,4 +142,4 @@ site-tmux --update            # git pull + re-run install.sh
 
 Because the files are symlinked, a `git pull` applies changes to `site-tmux` instantly;
 `--update` just runs the pull and reinstall for you (also re-links if files were added).
-Your per-machine `sites.conf` is never touched by updates.
+Your per-machine `sites.conf` and `sources.conf` are never touched by updates.

@@ -1,3 +1,4 @@
 # per-machine, never committed
 site-tmux/sites.conf
+copilot-sync/sources.conf
 *.bak

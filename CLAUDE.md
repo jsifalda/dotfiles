@@ -5,8 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 A portable dotfiles repo (public, pushed to `github.com/jsifalda/dotfiles`) cloned to `~/dotfiles`
-on each machine. Plain Bash + a tmux config — no build, lint, or test step. Three tracked artifacts
-get installed:
+on each machine. Plain Bash, a tmux config, and a Node hook. No build, lint, or test step. Five
+tracked artifacts get installed:
 
 - `bin/site-tmux` → symlinked to `~/.local/bin/site-tmux`
 - `tmux/tmux.conf` → symlinked to `~/.tmux.conf`
@@ -15,7 +15,12 @@ get installed:
   no absolute paths, no secrets. `pull`/`push` auto-detect the current branch to stay repo-portable.
   They are functions, so the file `unalias pull push` first — aliases expand at parse time, and a
   stale alias from an older `~/.bashrc` would otherwise make re-sourcing a syntax error. Keep that
-  guard.
+  guard. It now also covers `yolow` and `copilot`, which are functions for the same
+  parse-time-expansion reason, so the file unaliases them too.
+- `bin/cyolow` → symlinked to `~/.local/bin/cyolow`. Runs GitHub Copilot CLI inside an isolated
+  git worktree.
+- `copilot/sync-skills.js` → symlinked to `~/.copilot/hooks/sync-skills.js`. Pre-launch hook that
+  mirrors Claude Code skills into Copilot CLI's skills directory.
 
 ## The core design constraint: symlinks, not copies
 
@@ -28,22 +33,37 @@ the repo file, so:
 
 ## Machine-agnostic code, per-machine config
 
-The script is byte-identical on every host. The only per-machine state is the site→directory map
-at `${XDG_CONFIG_HOME:-$HOME/.config}/site-tmux/sites.conf` (format: one `site=dir` per line).
-That file is **outside the repo and gitignored** (`site-tmux/sites.conf`), seeded once from
-`site-tmux/sites.conf.example`. Consequences:
+The scripts are byte-identical on every host. Per-machine state lives in two config files, both
+outside the repo and gitignored, both seeded once by `install.sh` from an example and never
+overwritten after that:
 
-- Never commit real machine paths — they belong in the example file as commented samples only.
-- `install.sh` seeds `sites.conf` only if absent and never overwrites it; updates must not touch it.
-- Unknown/missing sites fall back to `$HOME` by design — the script must stay safe on any server.
-- `sites.conf` also carries an optional reserved `@prefix=<name>` line (not a site) — the device
-  label shown in claude.ai/code, defaulting to the OS hostname when unset.
+- **`site-tmux` map**: `${XDG_CONFIG_HOME:-$HOME/.config}/site-tmux/sites.conf` (format: one
+  `site=dir` per line), seeded from `site-tmux/sites.conf.example`. Also carries an optional
+  reserved `@prefix=<name>` line (not a site), the device label shown in claude.ai/code,
+  defaulting to the OS hostname when unset.
+- **Copilot skill sync sources**: `${XDG_CONFIG_HOME:-$HOME/.config}/copilot-sync/sources.conf`
+  (format: `key=value` per line, `#` comments, `~` expands to `$HOME`, keys repeatable), seeded
+  from `copilot-sync/sources.conf.example`. Keys: `source=<path>` (repeatable, order sets
+  priority, first source wins on a name conflict), `blacklist=<skill>` (repeatable, excludes a
+  skill), `whitelist=<skill>` (repeatable, non-empty wins over `blacklist` and makes the sync
+  include-only). No config file present, hook defaults to a single source,
+  `~/instructions/skills`.
+
+Consequences for both files:
+
+- Never commit real machine paths or skill names into either file. They belong in the example
+  files as commented samples only.
+- `install.sh` seeds each config only if absent and never overwrites it. Updates must not touch
+  either.
+- Unknown/missing `site-tmux` sites fall back to `$HOME` by design. The script must stay safe on
+  any server.
 
 ## install.sh invariants (keep these when editing)
 
 - **Idempotent and re-runnable.** Re-running must not destroy anything.
 - A real (non-symlink) file at a target is moved to `<file>.bak` before linking; an existing
-  symlink is replaced. `*.bak` is gitignored.
+  symlink is replaced. Existing backups are never overwritten, falling back to the first free
+  `<file>.<n>.bak` on collision. `*.bak` is gitignored.
 - Preserve the `set -euo pipefail` discipline and the PATH-check warning at the end.
 
 ## site-tmux behavior
@@ -61,6 +81,17 @@ system hostname; without root/`unshare` the override is skipped and the default 
 
 `site-tmux --update` resolves the install symlink back to the repo, runs `git pull --ff-only`, and
 re-execs `install.sh`. The repo must be a git checkout for this to work.
+
+## cyolow behavior
+
+`cyolow [name] [-- copilot args...]` runs GitHub Copilot CLI inside an isolated git worktree. It
+hard-fails outside a git repo. With no `name` it generates a random `adjective-noun-NNN` one. It
+pre-creates the worktree at the path Copilot's own `--worktree` flag expects, then copies the
+entries listed in the repo's `.worktreeinclude` into it before handing over. This exists because
+Copilot's own `--worktree` does not bring gitignored files, like `.env`, along on its own. It
+warns (does not fail) when the repo has no `.worktreeinclude`, and reuses an existing worktree at
+the same path instead of recreating it. It then hands over to
+`copilot --experimental --worktree=<name> --yolo`, with any args after `--` passed through.
 
 ## Conventions
 

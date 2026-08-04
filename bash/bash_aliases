@@ -3,8 +3,28 @@
 # load on any fresh box with no bashrc edits. Keep this file machine-agnostic:
 # no absolute paths, no secrets, nothing host-specific.
 
+# Older setups defined some of these names (pull, push, yolow, copilot) as aliases in
+# ~/.bashrc. Aliases expand at parse time, so a stale one would mangle the function
+# definitions below into a syntax error when this file is re-sourced into a long-lived
+# shell. Drop them first. (Targeted, not `unalias -a`: ~/.bashrc defines the ls/grep
+# color aliases before it sources this file.)
+unalias pull push yolow copilot 2>/dev/null || true
+
 # Claude Code — sandboxed, skip permission prompts.
 alias yolo='IS_SANDBOX=1 claude --dangerously-skip-permissions'
+
+# yolow: worktree-isolated twin of yolo, runs Claude in a fresh git worktree instead
+# of the current checkout so it can't touch other work in progress.
+yolow() {
+    local root
+    root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+        printf '%s\n' "yolow: not inside a git repository, --worktree needs a git work tree" >&2
+        return 1
+    }
+    [[ -f "$root/.worktreeinclude" ]] || \
+        printf '%s\n' "yolow: warning, no .worktreeinclude at $root; gitignored files (.env etc.) won't be copied into the worktree" >&2
+    IS_SANDBOX=1 command claude --dangerously-skip-permissions --worktree "$@"
+}
 
 # --- git ---
 alias to='git checkout'
@@ -15,12 +35,6 @@ alias glog='git log --oneline --graph'
 # pull/push operate on the *current* branch (auto-detected), so they work on any
 # repo regardless of whether its default branch is master, main, or anything else.
 # Defined as functions because they need the branch name resolved at call time.
-
-# Older setups defined pull/push as aliases in ~/.bashrc. Aliases expand at parse time,
-# so a stale one would mangle the definitions below into a syntax error when this file
-# is re-sourced into a long-lived shell. Drop them first. (Targeted, not `unalias -a`:
-# ~/.bashrc defines the ls/grep color aliases before it sources this file.)
-unalias pull push 2>/dev/null || true
 
 # Pull the current branch from origin, rebasing local commits on top.
 pull() {
@@ -35,3 +49,11 @@ push() {
     branch="$(git rev-parse --abbrev-ref HEAD)" || return 1
     pull && git push origin "$branch"
 }
+
+# --- Copilot CLI ---
+# copilot() mirrors Claude Code skills into Copilot CLI before every launch. node may
+# not exist on a given machine, hence the hook call is redirected to /dev/null and its
+# failure ignored.
+alias cyolo="copilot --yolo"
+
+copilot() { node "$HOME/.copilot/hooks/sync-skills.js" >/dev/null 2>&1; command copilot "$@"; }
