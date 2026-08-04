@@ -23,6 +23,8 @@
 //   - Copies directories (Copilot CLI ignores symlinked skills, see github/copilot-cli#1021)
 //   - Drops a .managed-by-copilot-sync marker so we never delete user-installed skills
 //   - Skips silently if ~/.copilot/ does not exist
+//   - isFresh() (below) is where this repo copy intentionally differs from the machine-local
+//     Claude Code counterpart hook, so the two are no longer identical on purpose
 
 const fs = require('fs');
 const path = require('path');
@@ -140,16 +142,48 @@ function isManaged(dir) {
   }
 }
 
-function isFresh(sourcePath, targetPath) {
-  const sourceSkill = path.join(sourcePath, 'SKILL.md');
-  const targetSkill = path.join(targetPath, 'SKILL.md');
+// Returns the newest mtimeMs found anywhere in the tree rooted at dir, or 0 if the
+// directory cannot be read. Recurses manually with readdirSync + isDirectory() rather
+// than the `recursive: true` option or dirent.parentPath/path, since those need a newer
+// Node than a random Linux server is guaranteed to have, and this hook must not crash there.
+function newestMtime(dir) {
+  let entries;
   try {
-    const sourceMtime = fs.statSync(sourceSkill).mtimeMs;
-    const targetMtime = fs.statSync(targetSkill).mtimeMs;
-    return targetMtime >= sourceMtime;
+    entries = fs.readdirSync(dir, { withFileTypes: true });
   } catch {
-    return false;
+    return 0;
   }
+
+  let newest = 0;
+  for (const entry of entries) {
+    const entryPath = path.join(dir, entry.name);
+
+    if (entry.isDirectory()) {
+      const childNewest = newestMtime(entryPath);
+      if (childNewest > newest) newest = childNewest;
+      continue;
+    }
+
+    try {
+      const mtime = fs.statSync(entryPath).mtimeMs;
+      if (mtime > newest) newest = mtime;
+    } catch {
+      continue;
+    }
+  }
+
+  return newest;
+}
+
+// Walks the whole tree instead of just comparing SKILL.md, because a changed script or
+// reference file under an unchanged SKILL.md would otherwise be missed and the stale
+// copy would keep being served. Only stat calls are made, no file contents are read, so
+// the cost stays flat even though this hook runs before every `copilot` launch.
+function isFresh(sourcePath, targetPath) {
+  const sourceMtime = newestMtime(sourcePath);
+  const targetMtime = newestMtime(targetPath);
+  if (sourceMtime === 0 || targetMtime === 0) return false;
+  return targetMtime >= sourceMtime;
 }
 
 function syncCopilotSkills() {

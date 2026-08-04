@@ -8,7 +8,7 @@
 #
 # `source` order is priority order, the first source that provides a skill name wins,
 # later sources with the same name are reported as conflicts and skipped.
-source=~/instructions/skills
+# source=~/instructions/skills
 
 # Example: a second source, searched after the one above.
 # source=~/some/other/skills

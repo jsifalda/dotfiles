@@ -62,7 +62,8 @@ Consequences for both files:
 
 - **Idempotent and re-runnable.** Re-running must not destroy anything.
 - A real (non-symlink) file at a target is moved to `<file>.bak` before linking; an existing
-  symlink is replaced. `*.bak` is gitignored.
+  symlink is replaced. Existing backups are never overwritten, falling back to the first free
+  `<file>.<n>.bak` on collision. `*.bak` is gitignored.
 - Preserve the `set -euo pipefail` discipline and the PATH-check warning at the end.
 
 ## site-tmux behavior

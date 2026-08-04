@@ -12,8 +12,20 @@ link() {
     if [[ -L "$dst" ]]; then
         rm -f "$dst"                                   # replace an existing symlink
     elif [[ -e "$dst" ]]; then
-        echo "backing up existing $dst → $dst.bak"
-        mv "$dst" "$dst.bak"                            # preserve a real file
+        # Find the first free <dst>.bak or <dst>.N.bak so an earlier backup is
+        # never clobbered. -L also catches a dangling symlink at that name.
+        local backup="$dst.bak"
+        local n=1
+        while [[ -e "$backup" || -L "$backup" ]]; do
+            if (( n > 100 )); then
+                echo "error: too many existing backups for $dst, clean up old .bak files" >&2
+                exit 1
+            fi
+            backup="$dst.$n.bak"
+            n=$((n + 1))
+        done
+        echo "backing up existing $dst → $backup"
+        mv "$dst" "$backup"                             # preserve a real file
     fi
     ln -s "$src" "$dst"
     echo "linked $dst → $src"
@@ -24,7 +36,7 @@ link() {
 seed() {
     local example="$1" dst="$2" hint="$3"
     mkdir -p "$(dirname "$dst")"
-    if [[ ! -f "$dst" ]]; then
+    if [[ ! -e "$dst" && ! -L "$dst" ]]; then
         cp "$example" "$dst"
         echo "created $dst — $hint"
     else

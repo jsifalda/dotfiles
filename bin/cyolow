@@ -54,6 +54,13 @@ copy_includes() {
   while IFS= read -r entry || [[ -n "$entry" ]]; do
     entry=$(strip_entry "$entry")
     [[ -z "$entry" ]] && continue
+    # Reject '..' as a path segment. Anything else would resolve outside $root/$wt.
+    # Matched by segment, not substring, so a legitimate name like '.env..local' survives.
+    case "$entry" in
+      ..|../*|*/..|*/../*)
+        printf 'cyolow: warning — .worktreeinclude entry escapes the repo, skipping: %s\n' "$entry" >&2
+        continue ;;
+    esac
     total=$((total + 1))
   done < "$include"
 
@@ -63,6 +70,13 @@ copy_includes() {
   while IFS= read -r entry || [[ -n "$entry" ]]; do
     entry=$(strip_entry "$entry")
     [[ -z "$entry" ]] && continue
+    # Reject '..' as a path segment. Anything else would resolve outside $root/$wt.
+    # Matched by segment, not substring, so a legitimate name like '.env..local' survives.
+    case "$entry" in
+      ..|../*|*/..|*/../*)
+        printf 'cyolow: warning — .worktreeinclude entry escapes the repo, skipping: %s\n' "$entry" >&2
+        continue ;;
+    esac
     index=$((index + 1))
     src="$root/$entry"
     if [[ ! -e "$src" ]]; then
@@ -88,5 +102,9 @@ else
   fi
   copy_includes
 fi
+
+# Mirrors the copilot() wrapper in bash/bash_aliases, since exec here reaches
+# the binary directly and would otherwise skip skill sync.
+node "$HOME/.copilot/hooks/sync-skills.js" >/dev/null 2>&1 || true
 
 exec copilot --experimental --worktree="$name" --yolo "$@"
