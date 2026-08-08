@@ -15,8 +15,15 @@ tracked artifacts get installed:
   no absolute paths, no secrets. `pull`/`push` auto-detect the current branch to stay repo-portable.
   They are functions, so the file `unalias pull push` first — aliases expand at parse time, and a
   stale alias from an older `~/.bashrc` would otherwise make re-sourcing a syntax error. Keep that
-  guard. It now also covers `yolow` and `copilot`, which are functions for the same
-  parse-time-expansion reason, so the file unaliases them too.
+  guard. It now also covers `yolo`, `yolow` and `copilot`, which are functions for the same
+  parse-time-expansion reason, so the file unaliases them too. `yolo`/`yolow` pass a default
+  `--remote-control <folder>-<timestamp>` built by `_claude_rc_args`, where folder is the git repo
+  root's name (the cwd's name outside a repo) and the timestamp keeps parallel sessions from
+  colliding in claude.ai/code. That helper is a port of `_pro_rc_args` in the machine-local
+  `~/.zshrc`, so its subcommand skip-list has to stay in sync with that copy. In `yolow` the
+  injected args must stay BEFORE `--worktree`: both `--remote-control [name]` and
+  `-w, --worktree [name]` take an optional value, so a trailing `--remote-control` is swallowed as
+  `--worktree`'s name and silently breaks `yolow <name>`. Keep that order.
 - `bin/cyolow` → symlinked to `~/.local/bin/cyolow`. Runs GitHub Copilot CLI inside an isolated
   git worktree.
 - `copilot/sync-skills.js` → symlinked to `~/.copilot/hooks/sync-skills.js`. Pre-launch hook that

@@ -3,27 +3,61 @@
 # load on any fresh box with no bashrc edits. Keep this file machine-agnostic:
 # no absolute paths, no secrets, nothing host-specific.
 
-# Older setups defined some of these names (pull, push, yolow, copilot) as aliases in
+# Older setups defined some of these names (pull, push, yolo, yolow, copilot) as aliases in
 # ~/.bashrc. Aliases expand at parse time, so a stale one would mangle the function
 # definitions below into a syntax error when this file is re-sourced into a long-lived
 # shell. Drop them first. (Targeted, not `unalias -a`: ~/.bashrc defines the ls/grep
 # color aliases before it sources this file.)
-unalias pull push yolow copilot 2>/dev/null || true
+unalias yolo yolow pull push copilot 2>/dev/null || true
 
-# Claude Code — sandboxed, skip permission prompts.
-alias yolo='IS_SANDBOX=1 claude --dangerously-skip-permissions'
+# Default Remote Control naming for yolo/yolow, a bash port of _pro_rc_args in the
+# machine-local ~/.zshrc — keep the subcommand list in sync with that copy.
+# Sets $reply to the --remote-control args, or leaves it empty when the caller already
+# named a session, invoked a subcommand, or asked for print mode. The name is the git
+# repo root's folder (cwd when outside a repo) plus a timestamp, so parallel sessions
+# never collide in claude.ai/code.
+_claude_rc_args() {
+    reply=()
+    local a root base
+    case "${1-}" in
+        agents|auth|auto-mode|doctor|gateway|import|install|mcp|plugin|plugins|project|setup-token|ultrareview|update|upgrade)
+            return 0 ;;
+    esac
+    for a in "$@"; do
+        case "$a" in
+            --remote-control|--remote-control=*|-p|--print) return 0 ;;
+        esac
+    done
+    root=$(git rev-parse --show-toplevel 2>/dev/null) || root=$PWD
+    base=${root##*/}
+    [[ -n "$base" ]] || base=root   # $root was '/'
+    reply=(--remote-control "$base-$(date +%Y-%m-%d-%H%M)")
+}
+
+# Claude Code — sandboxed, skip permission prompts. Defaults to a Remote Control
+# session named after the repo (or cwd) and timestamp; see _claude_rc_args above.
+yolo() {
+    local -a reply
+    _claude_rc_args "$@"
+    IS_SANDBOX=1 command claude --dangerously-skip-permissions ${reply[@]+"${reply[@]}"} "$@"
+}
 
 # yolow: worktree-isolated twin of yolo, runs Claude in a fresh git worktree instead
 # of the current checkout so it can't touch other work in progress.
 yolow() {
     local root
+    local -a reply
     root=$(git rev-parse --show-toplevel 2>/dev/null) || {
         printf '%s\n' "yolow: not inside a git repository, --worktree needs a git work tree" >&2
         return 1
     }
     [[ -f "$root/.worktreeinclude" ]] || \
         printf '%s\n' "yolow: warning, no .worktreeinclude at $root; gitignored files (.env etc.) won't be copied into the worktree" >&2
-    IS_SANDBOX=1 command claude --dangerously-skip-permissions --worktree "$@"
+    _claude_rc_args "$@"
+    # --remote-control and --worktree both take an OPTIONAL value: the injected args
+    # must come BEFORE --worktree, or they'd swallow --worktree's value slot and break
+    # `yolow <worktree-name>`. Do not reorder.
+    IS_SANDBOX=1 command claude --dangerously-skip-permissions ${reply[@]+"${reply[@]}"} --worktree "$@"
 }
 
 # --- git ---

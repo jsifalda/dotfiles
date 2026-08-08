@@ -7,10 +7,10 @@ Currently ships:
 - **`bin/site-tmux`** — attach to (or create) a per-"site" tmux session in its working
   directory, and ensure a `claude remote-control` window is running in that session.
 - **`tmux/tmux.conf`** → `~/.tmux.conf` — small set of tmux options.
-- **`bash/bash_aliases`** → `~/.bash_aliases` — portable shell aliases (git shortcuts and a
-  `claude` helper, plus `yolow` and `cyolo`/`copilot` for worktree-isolated agent runs). The
-  stock Ubuntu/Debian `~/.bashrc` sources `~/.bash_aliases` automatically, so they load on any
-  fresh box with no bashrc edits.
+- **`bash/bash_aliases`** → `~/.bash_aliases` — portable shell aliases (git shortcuts, plus
+  `yolo`/`yolow` for sandboxed Claude runs with a default Remote Control session name, and
+  `cyolo`/`copilot` for worktree-isolated agent runs). The stock Ubuntu/Debian `~/.bashrc`
+  sources `~/.bash_aliases` automatically, so they load on any fresh box with no bashrc edits.
 - **`bin/cyolow`** → `~/.local/bin/cyolow` — run GitHub Copilot CLI inside an isolated git
   worktree, copying in the gitignored files listed in `.worktreeinclude` first.
 - **`copilot/sync-skills.js`** → `~/.copilot/hooks/sync-skills.js` — pre-launch hook that
@@ -118,6 +118,30 @@ site-tmux anything-else       # unknown site → falls back to $HOME
 The `claude remote-control` window uses `remain-on-exit on`, so if it exits it stays
 visible as a dead pane (with its log) instead of vanishing. Re-running `site-tmux <site>`
 detects that dead `claude` window and respawns it.
+
+### yolo / yolow
+
+```bash
+yolo                            # claude --dangerously-skip-permissions, IS_SANDBOX=1
+yolo -p "summarize this repo"   # print mode, no Remote Control default
+yolo mcp list                   # subcommand, no Remote Control default
+yolow                           # worktree-isolated yolo, same defaults
+yolow my-feature                # worktree named 'my-feature'
+```
+
+Both wrap `claude --dangerously-skip-permissions` with `IS_SANDBOX=1`, and both inject a
+default `--remote-control <name>`, naming the session `<repo-root-folder>-<YYYY-MM-DD-HHMM>`
+(or the current directory's name outside a git repo). The timestamp exists so two sessions
+launched from the same repo don't collide in claude.ai/code.
+
+The default is skipped when the caller already passed `--remote-control` or
+`--remote-control=...`, asked for print mode (`-p`/`--print`), or the first argument is a
+Claude subcommand (`agents`, `auth`, `auto-mode`, `doctor`, `gateway`, `import`, `install`,
+`mcp`, `plugin`, `plugins`, `project`, `setup-token`, `ultrareview`, `update`, `upgrade`).
+`yolow <name>` still names the worktree, not the session. The injected args sit before
+`--worktree` on purpose: both flags take an optional value, so a trailing `--remote-control`
+would get consumed as the worktree's name instead. `yolow` hard-fails outside a git repo and
+warns when the repo has no `.worktreeinclude`.
 
 ### cyolow
 
