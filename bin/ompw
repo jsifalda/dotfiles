@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+# ompw — omp (Oh My Pi) in an isolated git worktree, with .worktreeinclude parity.
+#
+# Unlike cyolow, this script owns the whole worktree lifecycle: omp has NO --worktree
+# flag of its own (`omp worktree` only lists/clears the worktrees its subagents make
+# under ~/.omp/wt). So we create the worktree, copy the gitignored files listed in
+# .worktreeinclude, run the repo's bootstrap script if it has one, and then just tell
+# omp where to start.
+#
+# Usage: ompw [name] [-- omp args...]
+
+set -euo pipefail
+
+die() { printf 'ompw: %s\n' "$1" >&2; exit 1; }
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) \
+  || die "not inside a git repository — worktrees need a git work tree"
+
+name=""
+if [[ $# -gt 0 && "$1" != -* && "$1" != "--" ]]; then
+  name="$1"
+  shift
+fi
+[[ "${1:-}" == "--" ]] && shift
+
+if [[ -z "$name" ]]; then
+  adjectives=(bright calm clever eager brisk quiet swift bold warm keen)
+  nouns=(otter falcon cedar harbor lantern meadow rocket signal thicket vale)
+  a=${adjectives[$((RANDOM % ${#adjectives[@]}))]}
+  n=${nouns[$((RANDOM % ${#nouns[@]}))]}
+  name="${a}-${n}-$((RANDOM % 900 + 100))"
+fi
+
+case "$name" in
+  -*|*' '*|*'~'*|*'^'*|*':'*|*'?'*|*'*'*|*'['*|*'\'*|*'..'*)
+    die "invalid worktree name: $name" ;;
+esac
+
+wt="$root/.omp/worktrees/$name"
+branch="omp/$name"
+
+strip_entry() {
+  local e="${1%%#*}"
+  e="${e#"${e%%[![:space:]]*}"}"
+  e="${e%"${e##*[![:space:]]}"}"
+  printf '%s' "${e%/}"
+}
+
+copy_includes() {
+  local include="$root/.worktreeinclude" entry src dest copied=0 total=0 index=0
+  if [[ ! -f "$include" ]]; then
+    printf 'ompw: warning — no .worktreeinclude at %s; gitignored files (.env etc.) will not be copied into the worktree\n' "$root" >&2
+    return 0
+  fi
+
+  while IFS= read -r entry || [[ -n "$entry" ]]; do
+    entry=$(strip_entry "$entry")
+    [[ -z "$entry" ]] && continue
+    # Reject '..' as a path segment. Anything else would resolve outside $root/$wt.
+    # Matched by segment, not substring, so a legitimate name like '.env..local' survives.
+    case "$entry" in
+      ..|../*|*/..|*/../*)
+        printf 'ompw: warning — .worktreeinclude entry escapes the repo, skipping: %s\n' "$entry" >&2
+        continue ;;
+    esac
+    total=$((total + 1))
+  done < "$include"
+
+  printf 'ompw: copying %d .worktreeinclude entr%s into the worktree — large directories such as node_modules can take several minutes\n' \
+    "$total" "$([[ $total -eq 1 ]] && echo y || echo ies)" >&2
+
+  while IFS= read -r entry || [[ -n "$entry" ]]; do
+    entry=$(strip_entry "$entry")
+    [[ -z "$entry" ]] && continue
+    # Reject '..' as a path segment. Anything else would resolve outside $root/$wt.
+    # Matched by segment, not substring, so a legitimate name like '.env..local' survives.
+    case "$entry" in
+      ..|../*|*/..|*/../*)
+        printf 'ompw: warning — .worktreeinclude entry escapes the repo, skipping: %s\n' "$entry" >&2
+        continue ;;
+    esac
+    index=$((index + 1))
+    src="$root/$entry"
+    if [[ ! -e "$src" ]]; then
+      printf 'ompw: warning — .worktreeinclude entry not found, skipping: %s\n' "$entry" >&2
+      continue
+    fi
+    dest="$wt/$entry"
+    printf 'ompw: [%d/%d] copying %s…\n' "$index" "$total" "$entry" >&2
+    mkdir -p "$(dirname "$dest")"
+    cp -R "$src" "$dest"
+    copied=$((copied + 1))
+  done < "$include"
+  printf 'ompw: copied %d .worktreeinclude entr%s into the worktree\n' "$copied" "$([[ $copied -eq 1 ]] && echo y || echo ies)" >&2
+}
+
+# The worktrees live inside the repo, so keep them out of `git status` without asking the
+# project to carry a .gitignore entry for a personal tool. Local to this clone, uncommitted.
+exclude_worktrees() {
+  local gitdir exclude
+  gitdir=$(git -C "$root" rev-parse --git-common-dir 2>/dev/null) || return 0
+  [[ "$gitdir" != /* ]] && gitdir="$root/$gitdir"
+  exclude="$gitdir/info/exclude"
+  mkdir -p "$(dirname "$exclude")" || die "cannot create $(dirname "$exclude")"
+  [[ -f "$exclude" ]] || : > "$exclude" || die "cannot create $exclude"
+  if ! grep -qxF '/.omp/worktrees/' "$exclude"; then
+    printf '/.omp/worktrees/\n' >> "$exclude" || die "cannot write $exclude"
+    printf 'ompw: added /.omp/worktrees/ to %s\n' "$exclude" >&2
+  fi
+}
+
+# A directory at $wt is only reusable when git actually knows it as a worktree. A leftover
+# plain directory (a pruned or half-removed tree) would otherwise be handed to omp as if it
+# were a checkout.
+registered_worktree() {
+  local target listed
+  target=$(cd "$1" 2>/dev/null && pwd -P) || return 1
+  while IFS= read -r listed; do
+    listed=${listed#worktree }
+    listed=$(cd "$listed" 2>/dev/null && pwd -P) || continue
+    [[ "$listed" == "$target" ]] && return 0
+  done < <(git -C "$root" worktree list --porcelain | grep '^worktree ')
+  return 1
+}
+
+# Everything between `worktree add` and the hand-over can fail under `set -e`. Leaving a
+# half-prepared tree behind would then be reused verbatim on the next run.
+created_wt=""
+created_branch=""
+cleanup_failed_worktree() {
+  local rc=$?
+  [[ -n "$created_wt" ]] || return "$rc"
+  printf 'ompw: setup failed — removing the half-prepared worktree at %s\n' "$created_wt" >&2
+  git -C "$root" worktree remove --force "$created_wt" >/dev/null 2>&1 || true
+  [[ -n "$created_branch" ]] && git -C "$root" branch -D "$created_branch" >/dev/null 2>&1 || true
+  return "$rc"
+}
+
+if [[ -d "$wt" ]]; then
+  registered_worktree "$wt" \
+    || die "$wt exists but is not a registered git worktree — remove it, or pick another name"
+  printf 'ompw: reusing existing worktree at %s\n' "$wt" >&2
+else
+  exclude_worktrees
+  trap cleanup_failed_worktree EXIT
+  if git -C "$root" show-ref --verify --quiet "refs/heads/$branch"; then
+    git -C "$root" worktree add "$wt" "$branch" >&2
+    created_wt="$wt"
+  else
+    git -C "$root" worktree add -b "$branch" "$wt" >&2
+    created_wt="$wt"
+    created_branch="$branch"
+  fi
+  copy_includes
+  # Idempotent per-repo bootstrap (dependency install). Never fatal — it exits 0 by design.
+  if [[ -f "$wt/scripts/setup-worktree.sh" ]]; then
+    if [[ -x "$wt/scripts/setup-worktree.sh" ]]; then
+      printf 'ompw: running scripts/setup-worktree.sh…\n' >&2
+      bash "$wt/scripts/setup-worktree.sh" >&2 \
+        || printf 'ompw: warning — setup-worktree.sh failed; the worktree may be incomplete\n' >&2
+    else
+      printf 'ompw: warning — scripts/setup-worktree.sh is not executable, skipping it (chmod +x to enable)\n' >&2
+    fi
+  fi
+fi
+
+created_wt=""
+trap - EXIT
+cd "$wt"
+exec omp "$@"
