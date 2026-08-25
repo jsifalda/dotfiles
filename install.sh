@@ -48,6 +48,7 @@ link "$repo/bin/site-tmux" "$HOME/.local/bin/site-tmux"
 link "$repo/tmux/tmux.conf" "$HOME/.tmux.conf"
 link "$repo/bash/bash_aliases" "$HOME/.bash_aliases"
 link "$repo/bin/cyolow" "$HOME/.local/bin/cyolow"                              # Copilot-CLI-in-a-git-worktree launcher
+link "$repo/bin/ompw" "$HOME/.local/bin/ompw"                                  # omp-in-a-git-worktree launcher
 link "$repo/copilot/sync-skills.js" "$HOME/.copilot/hooks/sync-skills.js"      # pre-launch hook, mirrors Claude Code skills into Copilot CLI
 
 seed "$repo/site-tmux/sites.conf.example" \

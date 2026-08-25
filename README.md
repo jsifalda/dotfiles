@@ -13,6 +13,8 @@ Currently ships:
   sources `~/.bash_aliases` automatically, so they load on any fresh box with no bashrc edits.
 - **`bin/cyolow`** → `~/.local/bin/cyolow` — run GitHub Copilot CLI inside an isolated git
   worktree, copying in the gitignored files listed in `.worktreeinclude` first.
+- **`bin/ompw`** → `~/.local/bin/ompw` — run omp (Oh My Pi) inside an isolated git worktree,
+  copying in the gitignored files listed in `.worktreeinclude` first.
 - **`copilot/sync-skills.js`** → `~/.copilot/hooks/sync-skills.js` — pre-launch hook that
   mirrors Claude Code skills into Copilot CLI's skills directory.
 
@@ -53,7 +55,8 @@ git clone https://github.com/jsifalda/dotfiles ~/dotfiles
 
 `install.sh` is idempotent: it symlinks `bin/site-tmux` → `~/.local/bin/site-tmux`,
 `tmux/tmux.conf` → `~/.tmux.conf`, `bash/bash_aliases` → `~/.bash_aliases`, `bin/cyolow` →
-`~/.local/bin/cyolow`, and `copilot/sync-skills.js` → `~/.copilot/hooks/sync-skills.js`
+`~/.local/bin/cyolow`, `bin/ompw` → `~/.local/bin/ompw`, and `copilot/sync-skills.js` →
+`~/.copilot/hooks/sync-skills.js`
 (backing up any real file it would replace to `*.bak`), and seeds two per-machine config files
 from their examples: `~/.config/site-tmux/sites.conf` and `~/.config/copilot-sync/sources.conf`.
 
@@ -156,6 +159,30 @@ the entries listed in the repo's `.worktreeinclude` into it, so gitignored files
 come along (Copilot's own `--worktree` does not do this). It hard-fails outside a git repo,
 warns when there is no `.worktreeinclude`, and reuses an existing worktree at the same path
 instead of recreating it.
+
+### ompw
+
+```bash
+ompw                            # random 'adjective-noun-NNN' worktree, then omp
+ompw my-feature                 # worktree named 'my-feature'
+ompw my-feature -- --model opus # extra args passed through to omp
+```
+
+`ompw` owns the whole worktree lifecycle, because omp has no `--worktree` flag of its own
+(`omp worktree` only lists and clears the worktrees omp's own subagents create). It puts the
+worktree at `<repo>/.omp/worktrees/<name>` on a branch named `omp/<name>`, adds
+`/.omp/worktrees/` to the clone's `.git/info/exclude` so it never shows up in `git status`,
+copies the entries listed in `.worktreeinclude` so gitignored files like `.env` come along,
+runs the repo's `scripts/setup-worktree.sh` if it has one, and then starts omp in the new
+directory. It hard-fails outside a git repo, warns when there is no `.worktreeinclude`, and
+reuses an existing worktree at the same path instead of recreating it — but only when git still
+knows that path as a worktree; a leftover plain directory is an error, not something to reuse.
+If setup fails part-way, it removes the half-prepared worktree and the branch it just created
+rather than leaving them to be reused.
+
+A worktree that finished setup is never cleaned up automatically — remove one with
+`git worktree remove <path> && git branch -d omp/<name>` (use `-D` instead of `-d` to discard
+unmerged work).
 
 ## Update
 

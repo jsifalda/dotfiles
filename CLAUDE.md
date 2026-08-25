@@ -26,6 +26,8 @@ tracked artifacts get installed:
   `--worktree`'s name and silently breaks `yolow <name>`. Keep that order.
 - `bin/cyolow` → symlinked to `~/.local/bin/cyolow`. Runs GitHub Copilot CLI inside an isolated
   git worktree.
+- `bin/ompw` → symlinked to `~/.local/bin/ompw`. Runs omp (Oh My Pi) inside an isolated git
+  worktree.
 - `copilot/sync-skills.js` → symlinked to `~/.copilot/hooks/sync-skills.js`. Pre-launch hook that
   mirrors Claude Code skills into Copilot CLI's skills directory.
 
@@ -99,6 +101,22 @@ Copilot's own `--worktree` does not bring gitignored files, like `.env`, along o
 warns (does not fail) when the repo has no `.worktreeinclude`, and reuses an existing worktree at
 the same path instead of recreating it. It then hands over to
 `copilot --experimental --worktree=<name> --yolo`, with any args after `--` passed through.
+
+## ompw behavior
+
+`ompw [name] [-- omp args...]` runs omp (Oh My Pi) inside an isolated git worktree.
+
+- **It owns the whole worktree lifecycle**, because omp has no `--worktree` flag of its own —
+  `omp worktree` only lists and clears the trees omp's own subagents make under `~/.omp/wt`.
+- **Worktree at `<repo>/.omp/worktrees/<name>`, branch `omp/<name>`**, kept out of `git status` by
+  appending `/.omp/worktrees/` to the clone's `.git/info/exclude` (resolved via `--git-common-dir`,
+  so it also works from inside a worktree). It copies the `.worktreeinclude` entries, runs
+  `scripts/setup-worktree.sh` when present, then `exec`s omp in the new directory.
+- **The helpers duplicated from `cyolow` are duplicated on purpose** — `install.sh` symlinks single
+  files, so each script must stand alone on a fresh server.
+- **A path is only reused when git still registers it as a worktree**, and a setup that fails
+  part-way removes the worktree and the branch it just created. Cleanup after a successful run is
+  manual.
 
 ## Conventions
 
