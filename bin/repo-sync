@@ -1,0 +1,336 @@
+#!/usr/bin/env bash
+# repo-sync — pull a predefined list of local git repos, one command instead of many.
+#
+# Walks a list of checkouts (the instruction repos by default), and for each one that is a
+# git repo, sits on its own default branch and has a clean tree, runs the same pull as the
+# `pull` function in bash/bash_aliases. Everything else is reported and skipped, never
+# forced. Repo paths differ per machine, so a missing one is resolved interactively once
+# and remembered in the per-machine config:
+#   ${XDG_CONFIG_HOME:-$HOME/.config}/repo-sync/repos.conf
+#
+# Not named `sync`: /usr/bin/sync (coreutils) already owns that name on PATH.
+#
+# Usage: repo-sync [-h|--help]
+
+set -euo pipefail
+
+die() { printf 'repo-sync: %s\n' "$1" >&2; exit 1; }
+
+config="${XDG_CONFIG_HOME:-$HOME/.config}/repo-sync/repos.conf"
+
+# Used only when the config names no repo and no skip, mirroring DEFAULT_SOURCES in
+# copilot/sync-skills.js. The committed example ships commented samples only, so these
+# defaults live here rather than in a config file full of real machine paths.
+default_repos=("$HOME/instructions" "$HOME/instructions-private")
+
+# --- paths ------------------------------------------------------------------------------
+
+# Trim surrounding whitespace. Same idiom as bin/site-tmux.
+trim() {
+  local v="$1"
+  v="${v#"${v%%[![:space:]]*}"}"
+  v="${v%"${v##*[![:space:]]}"}"
+  printf '%s' "$v"
+}
+
+expand_home() {
+  case "$1" in
+    '~') printf '%s' "$HOME" ;;
+    '~/'*) printf '%s' "$HOME/${1#\~/}" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+# Inverse of expand_home, for display and for what gets written back to the config, so a
+# config written on one machine stays readable on another.
+shorten() {
+  case "$1" in
+    "$HOME") printf '~' ;;
+    "$HOME"/*) printf '~/%s' "${1#"$HOME"/}" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+# --- config -----------------------------------------------------------------------------
+
+# Parse the per-machine config into $repos and $skips. Format mirrors copilot-sync's
+# sources.conf: one key=value per line, '#' starts a comment to end of line, blanks
+# skipped, keys repeat, unrecognized keys ignored for forward compatibility. A missing or
+# unreadable config is not an error, it just leaves both lists empty.
+repos=()
+skips=()
+load_config() {
+  local line key val
+  [[ -r "$config" ]] || return 0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line=$(trim "${line%%#*}")
+    [[ -z "$line" || "$line" != *=* ]] && continue
+    key=$(trim "${line%%=*}")
+    val=$(trim "${line#*=}")
+    [[ -z "$key" || -z "$val" ]] && continue
+    case "$key" in
+      repo) repos+=("$(expand_home "$val")") ;;
+      skip) skips+=("$(expand_home "$val")") ;;
+    esac
+  done < "$config"
+}
+
+# Rewrite the config with the resolved set: keep every comment line the file already has,
+# drop its old repo=/skip= lines, append the new ones. Written to a temp file and moved into
+# place, so the config itself is never left half-written; the temp file is cleaned up on any
+# exit path. Failures here warn rather than abort, so the run still prints its summary.
+#
+# The config may itself be a symlink into a private dotfiles checkout, so write through to
+# the target rather than replacing the link, and keep whatever mode the file already had.
+save_config() {
+  local target dir tmp line stripped key p
+  target=$(readlink -f "$config" 2>/dev/null) || target="$config"
+  dir=$(dirname "$target")
+  mkdir -p "$dir" || { printf 'repo-sync: warning — cannot create %s, config not saved\n' "$dir" >&2; return 1; }
+  tmp=$(mktemp "$target.XXXXXX") || { printf 'repo-sync: warning — cannot write next to %s, config not saved\n' "$target" >&2; return 1; }
+  trap 'rm -f "$tmp"' RETURN
+  if [[ -r "$target" ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      # Match the same way load_config parses, or a hand-written `repo = ~/x` survives the
+      # filter and is then appended again, duplicating on every save.
+      stripped=$(trim "${line%%#*}")
+      if [[ "$stripped" == *=* ]]; then
+        key=$(trim "${stripped%%=*}")
+        [[ "$key" == "repo" || "$key" == "skip" ]] && continue
+      fi
+      printf '%s\n' "$line" >> "$tmp"
+    done < "$target"
+  fi
+  for p in ${repos[@]+"${repos[@]}"}; do
+    printf 'repo=%s\n' "$(shorten "$p")" >> "$tmp"
+  done
+  for p in ${skips[@]+"${skips[@]}"}; do
+    printf 'skip=%s\n' "$(shorten "$p")" >> "$tmp"
+  done
+  if [[ -e "$target" ]]; then
+    chmod --reference="$target" "$tmp" 2>/dev/null || true
+  fi
+  mv "$tmp" "$target" || { printf 'repo-sync: warning — cannot write %s, config not saved\n' "$target" >&2; return 1; }
+  printf 'repo-sync: saved %s\n' "$target" >&2
+}
+
+# --- git --------------------------------------------------------------------------------
+
+# True only when $1 IS the checkout, not merely somewhere inside one: rev-parse walks up,
+# so a subdirectory would otherwise pass and we would pull its parent repo instead.
+is_git_repo() {
+  local top
+  top=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null) || return 1
+  [[ -n "$top" && "$(readlink -f "$1")" == "$(readlink -f "$top")" ]]
+}
+
+# The branch this repo considers its own default. Resolved locally, no network call:
+# origin/HEAD when the clone recorded one, otherwise whichever of main/master exists.
+# Prints nothing and returns 1 when neither is available.
+default_branch() {
+  local ref b
+  if ref=$(git -C "$1" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null); then
+    printf '%s' "${ref#origin/}"
+    return 0
+  fi
+  for b in main master; do
+    if git -C "$1" show-ref --verify --quiet "refs/heads/$b"; then
+      printf '%s' "$b"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# --- interactive resolution ---------------------------------------------------------------
+
+# A missing path is a per-machine problem, so ask once and remember the answer — but only
+# when there is a terminal to ask on. Piped and cron runs fall through and report instead.
+interactive() { [[ -t 0 && -r /dev/tty ]]; }
+
+# Ask what to do about one missing path. Sets $resolution to repo|skip|defer, and on 'repo'
+# sets $resolved to the replacement path. Not a command substitution on purpose: that runs
+# in a subshell, where the answer would be lost.
+resolution=""
+resolved=""
+ask_missing() {
+  local answer alt
+  resolution="defer"
+  resolved=""
+  printf 'repo-sync: %s not found.\n' "$1" >&2
+  while true; do
+    printf '  [a] alternative path   [s] skip permanently   [Enter] leave it for now\n  > ' >&2
+    read -r answer < /dev/tty || return 0
+    case "$(trim "$answer")" in
+      a|A)
+        printf '  path: ' >&2
+        read -r alt < /dev/tty || return 0
+        alt=$(expand_home "$(trim "$alt")")
+        if [[ -z "$alt" ]]; then
+          printf '  no path given.\n' >&2
+        elif [[ ! -d "$alt" ]]; then
+          printf '  %s does not exist.\n' "$alt" >&2
+        elif [[ "$alt" == *'#'* ]]; then
+          printf "  a '#' in a path cannot be stored in the config.\n" >&2
+        elif ! is_git_repo "$alt"; then
+          printf '  %s is not a git repository.\n' "$alt" >&2
+        else
+          resolution="repo"
+          resolved="$alt"
+          return 0
+        fi
+        ;;
+      s|S) resolution="skip"; return 0 ;;
+      "") resolution="defer"; return 0 ;;
+      *) printf '  answer a, s, or Enter.\n' >&2 ;;
+    esac
+  done
+}
+
+# --- main ---------------------------------------------------------------------------------
+
+case "${1:-}" in
+  "") ;;
+  -h|--help)
+    printf 'Usage: repo-sync\n\nPulls each configured git repo that is on its default branch and clean.\nConfig: %s\n' "$config"
+    exit 0 ;;
+  *) die "unexpected argument: $1 (usage: repo-sync)" ;;
+esac
+
+command -v git >/dev/null 2>&1 || die "git not found on PATH"
+
+load_config
+# The config is authoritative the moment it names a single repo or skip, so a deliberate
+# skip is never quietly re-added from the defaults on the next run.
+if (( ${#repos[@]} + ${#skips[@]} == 0 )); then
+  repos=("${default_repos[@]}")
+fi
+
+pulled=0 skipped=0 missing=0 failed=0 changed=0
+kept=()
+
+# A path listed twice — by hand, or because the interview pointed a missing entry at a repo
+# already in the list — would otherwise be pulled twice and written back twice, growing the
+# config on every run. Identity is the resolved path, so ~/x and a symlink to it are one repo.
+declare -A seen=()
+key_of() { readlink -f "$1" 2>/dev/null || printf '%s' "$1"; }
+duplicate() {
+  local k; k=$(key_of "$1")
+  [[ -n "${seen[$k]:-}" ]] && return 0
+  seen[$k]=1
+  return 1
+}
+
+# A path recorded as skipped stays skipped even if it is also listed as a repo.
+for path in ${skips[@]+"${skips[@]}"}; do seen[$(key_of "$path")]=1; done
+
+for path in ${repos[@]+"${repos[@]}"}; do
+  label=$(shorten "$path")
+
+  if [[ ! -d "$path" ]]; then
+    if interactive; then
+      ask_missing "$label"
+      case "$resolution" in
+        repo)
+          changed=1
+          path="$resolved"
+          label=$(shorten "$path") ;;
+        skip)
+          # Reported by the skips loop below, along with any skip already in the config.
+          changed=1
+          skips+=("$path")
+          continue ;;
+        *)
+          printf '%-28s missing — left for now\n' "$label"
+          missing=$((missing + 1))
+          kept+=("$path")
+          continue ;;
+      esac
+    else
+      printf '%-28s missing — run repo-sync from a terminal to resolve it\n' "$label"
+      missing=$((missing + 1))
+      duplicate "$path" || kept+=("$path")
+      continue
+    fi
+  fi
+
+  if duplicate "$path"; then
+    printf '%-28s already listed — skipping\n' "$label"
+    continue
+  fi
+  kept+=("$path")
+
+  if ! is_git_repo "$path"; then
+    printf '%-28s not a git repository — skipping\n' "$label"
+    skipped=$((skipped + 1))
+    continue
+  fi
+
+  if ! branch=$(git -C "$path" rev-parse --abbrev-ref HEAD 2>/dev/null); then
+    printf '%-28s no commits yet — skipping\n' "$label"
+    skipped=$((skipped + 1))
+    continue
+  fi
+  if [[ "$branch" == "HEAD" ]]; then
+    printf '%-28s detached HEAD (or a rebase in progress) — skipping\n' "$label"
+    skipped=$((skipped + 1))
+    continue
+  fi
+
+  # Nothing to pull from, and git's own error here is a wall of text about access rights.
+  if ! git -C "$path" remote get-url origin >/dev/null 2>&1; then
+    printf '%-28s no origin remote — skipping\n' "$label"
+    skipped=$((skipped + 1))
+    continue
+  fi
+
+  if ! main=$(default_branch "$path"); then
+    printf '%-28s no default branch (main/master) — skipping\n' "$label"
+    skipped=$((skipped + 1))
+    continue
+  fi
+
+  if [[ "$branch" != "$main" ]]; then
+    # Being on a feature branch is the normal case here, so this stays a plain report. When
+    # the named default is itself wrong, origin/HEAD is stale: git remote set-head origin -a.
+    printf '%-28s on %s — not the default branch (%s), skipping\n' "$label" "$branch" "$main"
+    skipped=$((skipped + 1))
+    continue
+  fi
+
+  if ! status=$(git -C "$path" status --porcelain 2>/dev/null); then
+    printf '%-28s cannot read status — skipping\n' "$label"
+    skipped=$((skipped + 1))
+    continue
+  fi
+  if [[ -n "$status" ]]; then
+    printf '%-28s dirty (%d changed) — skipping\n' "$label" "$(printf '%s\n' "$status" | wc -l)"
+    skipped=$((skipped + 1))
+    continue
+  fi
+
+  printf '%-28s on %s, pulling…\n' "$label" "$branch"
+  # Same pull as the `pull` function in bash/bash_aliases: rebase local commits on top.
+  if git -C "$path" pull --rebase origin "$branch"; then
+    pulled=$((pulled + 1))
+  else
+    printf 'repo-sync: pull failed in %s\n' "$label" >&2
+    failed=$((failed + 1))
+  fi
+done
+
+# Configured skips are listed too, so it is always obvious why a repo is not being synced.
+for path in ${skips[@]+"${skips[@]}"}; do
+  printf '%-28s skipped (config)\n' "$(shorten "$path")"
+done
+
+# Persist only what the interview changed. A run that asked nothing leaves the config
+# exactly as it found it, including a config that does not exist yet.
+if (( changed )); then
+  repos=(${kept[@]+"${kept[@]}"})
+  save_config || true
+fi
+
+printf '%d pulled, %d skipped, %d missing, %d failed\n' \
+  "$pulled" "$((skipped + ${#skips[@]}))" "$missing" "$failed"
+(( failed == 0 )) || exit 1

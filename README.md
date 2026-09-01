@@ -15,6 +15,8 @@ Currently ships:
   worktree, copying in the gitignored files listed in `.worktreeinclude` first.
 - **`bin/ompw`** → `~/.local/bin/ompw` — run omp (Oh My Pi) inside an isolated git worktree,
   copying in the gitignored files listed in `.worktreeinclude` first.
+- **`bin/repo-sync`** → `~/.local/bin/repo-sync` — pull a predefined list of local git repos
+  in one command, skipping any that are dirty or off their default branch.
 - **`copilot/sync-skills.js`** → `~/.copilot/hooks/sync-skills.js` — pre-launch hook that
   mirrors Claude Code skills into Copilot CLI's skills directory.
 
@@ -55,10 +57,11 @@ git clone https://github.com/jsifalda/dotfiles ~/dotfiles
 
 `install.sh` is idempotent: it symlinks `bin/site-tmux` → `~/.local/bin/site-tmux`,
 `tmux/tmux.conf` → `~/.tmux.conf`, `bash/bash_aliases` → `~/.bash_aliases`, `bin/cyolow` →
-`~/.local/bin/cyolow`, `bin/ompw` → `~/.local/bin/ompw`, and `copilot/sync-skills.js` →
-`~/.copilot/hooks/sync-skills.js`
-(backing up any real file it would replace to `*.bak`), and seeds two per-machine config files
-from their examples: `~/.config/site-tmux/sites.conf` and `~/.config/copilot-sync/sources.conf`.
+`~/.local/bin/cyolow`, `bin/ompw` → `~/.local/bin/ompw`, `bin/repo-sync` →
+`~/.local/bin/repo-sync`, and `copilot/sync-skills.js` → `~/.copilot/hooks/sync-skills.js`
+(backing up any real file it would replace to `*.bak`), and seeds three per-machine config files
+from their examples: `~/.config/site-tmux/sites.conf`, `~/.config/copilot-sync/sources.conf` and
+`~/.config/repo-sync/repos.conf`.
 
 Then edit this machine's site map:
 
@@ -91,6 +94,23 @@ blacklist=example-skill-name
 `blacklist` excludes a skill by name. `whitelist` (also repeatable) wins over `blacklist` when
 non-empty and makes the sync include-only. With no config file present, the hook defaults to a
 single source, `~/instructions/skills`.
+
+### repo-sync repo list
+
+`bin/repo-sync` pulls a list of local checkouts. That list is a third per-machine config,
+`~/.config/repo-sync/repos.conf`, under the same rules: outside the repo, gitignored, seeded
+once from the example and never overwritten.
+
+```ini
+# key=value   (repeatable keys; ~ expands to $HOME)
+repo=~/instructions
+skip=~/instructions-private
+```
+
+`repo` is a checkout to pull; `skip` is one you deliberately left out, listed in the output so
+it never looks forgotten. With neither key present, `repo-sync` falls back to its built-in
+defaults, `~/instructions` and `~/instructions-private`, and asks about any path that is
+missing — the answer is written back here, so it only ever asks once.
 
 ### Naming this machine in claude.ai/code
 
@@ -184,6 +204,30 @@ A worktree that finished setup is never cleaned up automatically — remove one 
 `git worktree remove <path> && git branch -d omp/<name>` (use `-D` instead of `-d` to discard
 unmerged work).
 
+### repo-sync
+
+```bash
+repo-sync                     # pull every configured repo that is safe to pull
+repo-sync --help              # usage, and where the config lives
+$EDITOR ~/.config/repo-sync/repos.conf   # change the list by hand
+```
+
+`repo-sync` walks the configured repos and pulls each one with `git pull --rebase origin
+<branch>` — the same pull as the `pull` shell function — but only when it is a git repo with an
+`origin` remote, sitting on its own default branch (`origin/HEAD`, falling back to whichever of
+`main`/`master` exists) and with a clean working tree. Anything else is reported and skipped:
+dirty, detached, on a feature branch, not a repo, missing. A missing path is asked about once on
+a terminal — supply an alternative, skip it permanently, or leave it for now — and the answer is
+saved to `~/.config/repo-sync/repos.conf`, so later runs are silent. Piped and cron runs never
+prompt and never write to the config. Skips are normal and exit `0`; only a failed `git pull`
+exits non-zero.
+
+If a repo is skipped as "not the default branch" but the named default looks wrong, the clone's
+`origin/HEAD` is stale (typically after a `master` → `main` rename upstream) — refresh it once
+with `git -C <path> remote set-head origin -a`.
+
+Not called `sync`, because `/usr/bin/sync` (coreutils) already owns that name on `PATH`.
+
 ## Update
 
 ```bash
@@ -193,4 +237,4 @@ site-tmux --update            # git pull + re-run install.sh
 
 Because the files are symlinked, a `git pull` applies changes to `site-tmux` instantly;
 `--update` just runs the pull and reinstall for you (also re-links if files were added).
-Your per-machine `sites.conf` and `sources.conf` are never touched by updates.
+Your per-machine `sites.conf`, `sources.conf` and `repos.conf` are never touched by updates.
