@@ -138,6 +138,21 @@ pull as the `pull` function in `bash/bash_aliases`.
   Everything else is reported and skipped, never forced or stashed.
 - **The config is authoritative the moment it names one `repo=` or `skip=`**, so a deliberate
   skip is never quietly re-added from the built-in defaults.
+- **The dotfiles checkout syncs itself, with no config entry.** `self_repo()` resolves the
+  installed symlink back to the repo root, the same way `bin/site-tmux` does for `--update`. It
+  demands the script sit in `<root>/bin/` next to an `install.sh`, so a stray copy inside some
+  other git repo never enrols that repo; a copy outside any checkout adds nothing and says
+  nothing. This is *additive* to the rule above — the entry appears whether or not the config
+  names anything — but the config still wins over it: a `skip=<checkout>` line opts out, and a
+  hand-written `repo=<checkout>` line is used as-is instead of appending.
+- **The discovered path must never be written to the config.** The write-back drops the self entry
+  only when *this run* appended it (`self_appended`), which is the whole of that guarantee — a
+  config carrying today's path would outlive a moved checkout. A hand-written entry is the user's
+  line and is preserved. `ask_missing` refuses the checkout as an answer for the same reason:
+  accepting it would replace the entry being resolved with one the write-back then discards.
+- **The self entry is appended last**, so the pull that can rewrite `bin/repo-sync` runs after
+  every other repo. Safe either way — git swaps the file for a new inode, so the running shell
+  keeps reading the original bytes — but keep the ordering.
 - **A missing path is asked about on a TTY**, and only an alternative path or a permanent skip
   is recorded as an answer — the config is rewritten with comment lines preserved and old
   `repo=`/`skip=` lines replaced, via a temp file and `mv`. Leaving it for now records nothing,

@@ -11,6 +11,9 @@
 # repo=~/instructions
 # repo=~/some/other/checkout
 
+# The dotfiles checkout this script was installed from needs no entry here — repo-sync finds
+# it from its own location and always syncs it. Add a `skip` line for it to opt out.
+
 # `skip` is a path you chose not to sync. It is listed in the output so it never looks
 # like the repo was forgotten.
 # skip=~/instructions-private

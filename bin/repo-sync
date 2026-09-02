@@ -135,6 +135,30 @@ is_git_repo() {
   [[ -n "$top" && "$(readlink -f "$1")" == "$(readlink -f "$top")" ]]
 }
 
+# The checkout this script itself lives in. Installed as a symlink, so readlink -f follows
+# ~/.local/bin/repo-sync into the repo, and bin/ -> repo root gives the checkout — the same
+# resolution bin/site-tmux uses for --update. Prints nothing and returns 1 when the script is
+# not inside a git checkout (a plain copy on a machine without the repo), so that case adds
+# nothing to the list rather than reporting a phantom repo on every run.
+self_repo() {
+  local self dir root
+  self=$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null) || return 1
+  dir=$(dirname "$self")
+  # Only a checkout of THIS repo counts. Without both checks, a stray copy at
+  # <any-git-repo>/<any-dir>/repo-sync would silently enrol that repo for pulling.
+  [[ "$(basename "$dir")" == "bin" ]] || return 1
+  root=$(cd "$dir/.." 2>/dev/null && pwd) || return 1
+  [[ -e "$root/install.sh" ]] || return 1
+  is_git_repo "$root" || return 1
+  printf '%s' "$root"
+}
+
+# Resolved once, here: ask_missing needs it to refuse the checkout as an answer, and the list
+# append and the config write-back below both key off it.
+self_path=$(self_repo) || self_path=""
+self_key=""
+[[ -z "$self_path" ]] || self_key=$(readlink -f "$self_path" 2>/dev/null || printf '%s' "$self_path")
+
 # The branch this repo considers its own default. Resolved locally, no network call:
 # origin/HEAD when the clone recorded one, otherwise whichever of main/master exists.
 # Prints nothing and returns 1 when neither is available.
@@ -193,6 +217,10 @@ ask_missing() {
           printf '  %s does not exist.\n' "$alt" >&2
         elif [[ "$alt" == *'#'* ]]; then
           printf "  a '#' in a path cannot be stored in the config.\n" >&2
+        elif [[ -n "$self_key" && "$(readlink -f "$alt" 2>/dev/null || printf '%s' "$alt")" == "$self_key" ]]; then
+          # Accepting it would replace the entry being resolved with a path the write-back
+          # then drops, losing both. It syncs on its own anyway.
+          printf '  that is the repo-sync checkout — it already syncs itself.\n' >&2
         elif ! is_git_repo "$alt"; then
           printf '  %s is not a git repository.\n' "$alt" >&2
         else
@@ -244,6 +272,24 @@ duplicate() {
 
 # A path recorded as skipped stays skipped even if it is also listed as a repo.
 for path in ${skips[@]+"${skips[@]}"}; do seen[$(key_of "$path")]=1; done
+
+# The repo this script lives in syncs too, without an entry in the config: where the checkout
+# sits is not a per-machine preference, it is wherever repo-sync was installed from. So this is
+# additive to the config-is-authoritative rule above, and `skip=<checkout>` is how to opt out.
+# Appended LAST on purpose: this is the pull that can rewrite bin/repo-sync, so every other repo
+# is handled first. (Safe either way — git replaces a working-tree file with a new inode, so the
+# running shell keeps reading the original bytes and the new version applies on the next run.)
+self_appended=""
+if [[ -n "$self_path" ]]; then
+  self_listed="${seen[$self_key]:-}"       # already skipped by the config
+  for p in ${repos[@]+"${repos[@]}"}; do   # or already listed by hand
+    [[ "$(key_of "$p")" == "$self_key" ]] && { self_listed=1; break; }
+  done
+  if [[ -z "$self_listed" ]]; then
+    repos+=("$self_path")
+    self_appended=1
+  fi
+fi
 
 for path in ${repos[@]+"${repos[@]}"}; do
   label=$(shorten "$path")
@@ -348,7 +394,16 @@ done
 # Persist only what the interview changed. A run that asked nothing leaves the config
 # exactly as it found it, including a config that does not exist yet.
 if (( changed )); then
-  repos=(${kept[@]+"${kept[@]}"})
+  repos=()
+  for p in ${kept[@]+"${kept[@]}"}; do
+    # Drop the self entry only when this run added it: it is discovered from where the script
+    # lives, and writing it back would freeze today's path into a file that outlives a moved
+    # checkout. A `repo=` line the user wrote by hand is theirs, and stays.
+    if [[ -n "$self_appended" && "$(key_of "$p")" == "$self_key" ]]; then
+      continue
+    fi
+    repos+=("$p")
+  done
   save_config || true
 fi
 

@@ -109,7 +109,11 @@ skip=~/instructions-private
 
 `repo` is a checkout to pull; `skip` is one you deliberately left out, listed in the output so
 it never looks forgotten. Both must be absolute or `~`-prefixed — a relative one is ignored with
-a warning, since it would name a different directory depending on where you ran from. With neither key present, `repo-sync` falls back to its built-in
+a warning, since it would name a different directory depending on where you ran from.
+
+The dotfiles checkout itself needs no entry: `repo-sync` finds it from its own installed location
+and adds it to the list. `skip=<path to the checkout>` opts out, and listing it as a `repo=` line
+by hand works too — then it is an ordinary entry, in whatever position you put it. With neither key present, `repo-sync` falls back to its built-in
 defaults, `~/instructions` and `~/instructions-private`, and asks about any path that is
 missing; an alternative path or a permanent skip is recorded here, so it stops asking.
 
@@ -217,7 +221,11 @@ $EDITOR ~/.config/repo-sync/repos.conf   # change the list by hand
 <branch>` — the same pull as the `pull` shell function — but only when it is a git repo with an
 `origin` remote, sitting on its own default branch (`origin/HEAD`, falling back to whichever of
 `main`/`master` exists) and with a clean working tree. Anything else is reported and skipped:
-dirty, detached, on a feature branch, not a repo, missing. A missing path is asked about on a
+dirty, detached, on a feature branch, not a repo, missing. The dotfiles checkout is added to the
+list on its own, found by resolving the installed `repo-sync` symlink back to its repo root rather
+than from the config, and synced last — so it is pulled after everything else, and skipped like any
+other repo while you have it on a feature branch. (A copy of the script living outside such a
+checkout simply has no self entry, silently.) A missing path is asked about on a
 terminal: supplying an alternative or skipping it permanently is recorded in
 `~/.config/repo-sync/repos.conf` and stops the question; leaving it for now records no answer, so
 the next terminal run asks again. An alternative is stored as an absolute path, so it stays correct
