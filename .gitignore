@@ -1,4 +1,5 @@
 # per-machine, never committed
 site-tmux/sites.conf
 copilot-sync/sources.conf
+repo-sync/repos.conf
 *.bak

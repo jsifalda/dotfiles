@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 A portable dotfiles repo (public, pushed to `github.com/jsifalda/dotfiles`) cloned to `~/dotfiles`
-on each machine. Plain Bash, a tmux config, and a Node hook. No build, lint, or test step. Five
+on each machine. Plain Bash, a tmux config, and a Node hook. No build, lint, or test step. Seven
 tracked artifacts get installed:
 
 - `bin/site-tmux` → symlinked to `~/.local/bin/site-tmux`
@@ -28,6 +28,8 @@ tracked artifacts get installed:
   git worktree.
 - `bin/ompw` → symlinked to `~/.local/bin/ompw`. Runs omp (Oh My Pi) inside an isolated git
   worktree.
+- `bin/repo-sync` → symlinked to `~/.local/bin/repo-sync`. Pulls a predefined list of local
+  git repos in one command.
 - `copilot/sync-skills.js` → symlinked to `~/.copilot/hooks/sync-skills.js`. Pre-launch hook that
   mirrors Claude Code skills into Copilot CLI's skills directory.
 
@@ -42,14 +44,19 @@ the repo file, so:
 
 ## Machine-agnostic code, per-machine config
 
-The scripts are byte-identical on every host. Per-machine state lives in two config files, both
-outside the repo and gitignored, both seeded once by `install.sh` from an example and never
+The scripts are byte-identical on every host. Per-machine state lives in three config files, all
+outside the repo and gitignored, each seeded once by `install.sh` from an example and never
 overwritten after that:
 
 - **`site-tmux` map**: `${XDG_CONFIG_HOME:-$HOME/.config}/site-tmux/sites.conf` (format: one
   `site=dir` per line), seeded from `site-tmux/sites.conf.example`. Also carries an optional
   reserved `@prefix=<name>` line (not a site), the device label shown in claude.ai/code,
   defaulting to the OS hostname when unset.
+- **`repo-sync` repo list**: `${XDG_CONFIG_HOME:-$HOME/.config}/repo-sync/repos.conf` (format:
+  `key=value` per line, `#` comments, `~` expands to `$HOME`, keys repeatable), seeded from
+  `repo-sync/repos.conf.example`. Keys: `repo=<path>` (a checkout to pull), `skip=<path>` (one
+  deliberately left out). Neither key present, the script falls back to its built-in defaults,
+  `~/instructions` and `~/instructions-private`.
 - **Copilot skill sync sources**: `${XDG_CONFIG_HOME:-$HOME/.config}/copilot-sync/sources.conf`
   (format: `key=value` per line, `#` comments, `~` expands to `$HOME`, keys repeatable), seeded
   from `copilot-sync/sources.conf.example`. Keys: `source=<path>` (repeatable, order sets
@@ -58,12 +65,12 @@ overwritten after that:
   include-only). No config file present, hook defaults to a single source,
   `~/instructions/skills`.
 
-Consequences for both files:
+Consequences for all three:
 
-- Never commit real machine paths or skill names into either file. They belong in the example
+- Never commit real machine paths or skill names into any of them. They belong in the example
   files as commented samples only.
 - `install.sh` seeds each config only if absent and never overwrites it. Updates must not touch
-  either.
+  them.
 - Unknown/missing `site-tmux` sites fall back to `$HOME` by design. The script must stay safe on
   any server.
 
@@ -117,6 +124,42 @@ the same path instead of recreating it. It then hands over to
 - **A path is only reused when git still registers it as a worktree**, and a setup that fails
   part-way removes the worktree and the branch it just created. Cleanup after a successful run is
   manual.
+
+## repo-sync behavior
+
+`repo-sync` pulls each configured checkout with `git pull --rebase origin <branch>`, the same
+pull as the `pull` function in `bash/bash_aliases`.
+
+- **It is deliberately not named `sync`** — `/usr/bin/sync` (coreutils) owns that name on
+  `PATH`. Do not rename it.
+- **A repo is pulled only when every gate passes**: it exists, is a git repo, has an `origin`
+  remote, is on its own default branch, and has a clean tree. The default branch comes from
+  `origin/HEAD` with a `main`/`master` fallback — resolved locally, never over the network.
+  Everything else is reported and skipped, never forced or stashed.
+- **The config is authoritative the moment it names one `repo=` or `skip=`**, so a deliberate
+  skip is never quietly re-added from the built-in defaults.
+- **The dotfiles checkout syncs itself, with no config entry.** `self_repo()` resolves the
+  installed symlink back to the repo root, the same way `bin/site-tmux` does for `--update`. It
+  demands the script sit in `<root>/bin/` next to an `install.sh`, so a stray copy inside some
+  other git repo never enrols that repo; a copy outside any checkout adds nothing and says
+  nothing. This is *additive* to the rule above — the entry appears whether or not the config
+  names anything — but the config still wins over it: a `skip=<checkout>` line opts out, and a
+  hand-written `repo=<checkout>` line is used as-is instead of appending.
+- **The discovered path must never be written to the config.** The write-back drops the self entry
+  only when *this run* appended it (`self_appended`), which is the whole of that guarantee — a
+  config carrying today's path would outlive a moved checkout. A hand-written entry is the user's
+  line and is preserved. `ask_missing` refuses the checkout as an answer for the same reason:
+  accepting it would replace the entry being resolved with one the write-back then discards.
+- **The self entry is appended last**, so the pull that can rewrite `bin/repo-sync` runs after
+  every other repo. Safe either way — git swaps the file for a new inode, so the running shell
+  keeps reading the original bytes — but keep the ordering.
+- **A missing path is asked about on a TTY**, and only an alternative path or a permanent skip
+  is recorded as an answer — the config is rewritten with comment lines preserved and old
+  `repo=`/`skip=` lines replaced, via a temp file and `mv`. Leaving it for now records nothing,
+  so the next terminal run asks again. Piped and cron runs never prompt and never write.
+- **An alternative path is stored absolute**, so it cannot resolve elsewhere when `repo-sync` is
+  run from a different directory.
+- **Skips are normal**: exit is non-zero only when a `git pull` actually failed.
 
 ## Conventions
 

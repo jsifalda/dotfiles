@@ -1,0 +1,27 @@
+# Per-machine repo list for bin/repo-sync.
+# One `key=value` per line. '~' expands to $HOME. '#' starts a comment to end of line.
+# This file is NOT committed, copy it to your config dir and edit per machine:
+#   ${XDG_CONFIG_HOME:-$HOME/.config}/repo-sync/repos.conf
+#
+# Recognized keys: repo, skip. Anything else is ignored.
+# Keys repeat, one line per path.
+#
+# `repo` is a checkout to pull. repo-sync only pulls it when it is a git repo, sits on its
+# own default branch and has a clean tree — anything else is reported and skipped.
+# repo=~/instructions
+# repo=~/some/other/checkout
+
+# The dotfiles checkout this script was installed from needs no entry here — repo-sync finds
+# it from its own location and always syncs it. Add a `skip` line for it to opt out.
+
+# `skip` is a path you chose not to sync. It is listed in the output so it never looks
+# like the repo was forgotten.
+# skip=~/instructions-private
+
+# Paths must be absolute or '~'-prefixed. A relative one would mean a different directory
+# depending on where repo-sync was run from, so it is ignored with a warning.
+#
+# With no repo and no skip line here, repo-sync falls back to its built-in defaults,
+# ~/instructions and ~/instructions-private. A missing path is asked about on a terminal:
+# an alternative path or a permanent skip is recorded in this file and stops the question,
+# while leaving it for now records no answer and asks again next time.

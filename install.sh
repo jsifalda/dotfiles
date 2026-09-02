@@ -49,6 +49,7 @@ link "$repo/tmux/tmux.conf" "$HOME/.tmux.conf"
 link "$repo/bash/bash_aliases" "$HOME/.bash_aliases"
 link "$repo/bin/cyolow" "$HOME/.local/bin/cyolow"                              # Copilot-CLI-in-a-git-worktree launcher
 link "$repo/bin/ompw" "$HOME/.local/bin/ompw"                                  # omp-in-a-git-worktree launcher
+link "$repo/bin/repo-sync" "$HOME/.local/bin/repo-sync"                        # pulls the configured git repos in one command
 link "$repo/copilot/sync-skills.js" "$HOME/.copilot/hooks/sync-skills.js"      # pre-launch hook, mirrors Claude Code skills into Copilot CLI
 
 seed "$repo/site-tmux/sites.conf.example" \
@@ -58,6 +59,10 @@ seed "$repo/site-tmux/sites.conf.example" \
 seed "$repo/copilot-sync/sources.conf.example" \
     "${XDG_CONFIG_HOME:-$HOME/.config}/copilot-sync/sources.conf" \
     "edit it with this machine's skill sources"
+
+seed "$repo/repo-sync/repos.conf.example" \
+    "${XDG_CONFIG_HOME:-$HOME/.config}/repo-sync/repos.conf" \
+    "edit it with this machine's repos (repo=path per line)"
 
 case ":$PATH:" in
     *":$HOME/.local/bin:"*) ;;
