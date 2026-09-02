@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 A portable dotfiles repo (public, pushed to `github.com/jsifalda/dotfiles`) cloned to `~/dotfiles`
-on each machine. Plain Bash, a tmux config, and a Node hook. No build, lint, or test step. Six
+on each machine. Plain Bash, a tmux config, and a Node hook. No build, lint, or test step. Seven
 tracked artifacts get installed:
 
 - `bin/site-tmux` → symlinked to `~/.local/bin/site-tmux`
@@ -138,9 +138,12 @@ pull as the `pull` function in `bash/bash_aliases`.
   Everything else is reported and skipped, never forced or stashed.
 - **The config is authoritative the moment it names one `repo=` or `skip=`**, so a deliberate
   skip is never quietly re-added from the built-in defaults.
-- **A missing path is asked about once**, only on a TTY, and the answer is written back —
-  comment lines preserved, old `repo=`/`skip=` lines replaced, via a temp file and `mv`. Piped
-  and cron runs never prompt and never write.
+- **A missing path is asked about on a TTY**, and only an alternative path or a permanent skip
+  is recorded as an answer — the config is rewritten with comment lines preserved and old
+  `repo=`/`skip=` lines replaced, via a temp file and `mv`. Leaving it for now records nothing,
+  so the next terminal run asks again. Piped and cron runs never prompt and never write.
+- **An alternative path is stored absolute**, so it cannot resolve elsewhere when `repo-sync` is
+  run from a different directory.
 - **Skips are normal**: exit is non-zero only when a `git pull` actually failed.
 
 ## Conventions

@@ -4,8 +4,8 @@
 # Walks a list of checkouts (the instruction repos by default), and for each one that is a
 # git repo, sits on its own default branch and has a clean tree, runs the same pull as the
 # `pull` function in bash/bash_aliases. Everything else is reported and skipped, never
-# forced. Repo paths differ per machine, so a missing one is resolved interactively once
-# and remembered in the per-machine config:
+# forced. Repo paths differ per machine, so a missing one is resolved interactively and the
+# answer remembered in the per-machine config:
 #   ${XDG_CONFIG_HOME:-$HOME/.config}/repo-sync/repos.conf
 #
 # Not named `sync`: /usr/bin/sync (coreutils) already owns that name on PATH.
@@ -69,8 +69,19 @@ load_config() {
     val=$(trim "${line#*=}")
     [[ -z "$key" || -z "$val" ]] && continue
     case "$key" in
-      repo) repos+=("$(expand_home "$val")") ;;
-      skip) skips+=("$(expand_home "$val")") ;;
+      repo|skip)
+        val=$(expand_home "$val")
+        # A relative path names a different directory depending on where repo-sync was run
+        # from, so it can never be trusted. Documented as unsupported; refuse it out loud
+        # rather than pulling whatever happens to sit under the current directory.
+        if [[ "$val" != /* ]]; then
+          printf 'repo-sync: warning — %s=%s is not absolute or ~-prefixed, ignoring it\n' \
+            "$key" "$val" >&2
+        elif [[ "$key" == "repo" ]]; then
+          repos+=("$val")
+        else
+          skips+=("$val")
+        fi ;;
     esac
   done < "$config"
 }
@@ -144,8 +155,8 @@ default_branch() {
 
 # --- interactive resolution ---------------------------------------------------------------
 
-# A missing path is a per-machine problem, so ask once and remember the answer — but only
-# when there is a terminal to ask on. Piped and cron runs fall through and report instead.
+# A missing path is a per-machine problem, so ask and remember the answer — but only when
+# there is a terminal to ask on. Piped and cron runs fall through and report instead.
 interactive() { [[ -t 0 && -r /dev/tty ]]; }
 
 # Ask what to do about one missing path. Sets $resolution to repo|skip|defer, and on 'repo'
@@ -166,6 +177,16 @@ ask_missing() {
         printf '  path: ' >&2
         read -r alt < /dev/tty || return 0
         alt=$(expand_home "$(trim "$alt")")
+        # Make it absolute BEFORE anything validates or stores it, so what was checked is
+        # exactly what gets written: a relative answer like '.' would otherwise land in the
+        # config verbatim and resolve elsewhere on the next run. The $PWD prefix is the
+        # portable floor (BSD/macOS realpath has no -s); realpath -s then folds '.'/'..'
+        # lexically, leaving symlinks alone so an answer like '~/mylink' keeps the name the
+        # user typed and still shortens back to '~/…' when saved.
+        if [[ -n "$alt" ]]; then
+          [[ "$alt" == /* ]] || alt="$PWD/$alt"
+          alt=$(realpath -s "$alt" 2>/dev/null || printf '%s' "${alt%/.}")
+        fi
         if [[ -z "$alt" ]]; then
           printf '  no path given.\n' >&2
         elif [[ ! -d "$alt" ]]; then

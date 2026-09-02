@@ -35,10 +35,10 @@ without copy-paste drift. The design choices that make that work:
   (`~/.local/bin/site-tmux`, `~/.tmux.conf`) instead of copying them. So a `git pull` takes
   effect *instantly* — the live file **is** the repo file. Nothing to re-copy, no stale duplicates.
 - **Machine-agnostic code, per-machine config.** The scripts are identical on every host. What
-  differs is two config files: the `site=dir` map in `~/.config/site-tmux/sites.conf`, and the
-  skill source list in `~/.config/copilot-sync/sources.conf`. Both stay *outside* the repo
-  (gitignored), so machine-specific paths never leak into a public repo and updates never
-  clobber your local setup.
+  differs is three config files: the `site=dir` map in `~/.config/site-tmux/sites.conf`, the
+  skill source list in `~/.config/copilot-sync/sources.conf`, and the repo list in
+  `~/.config/repo-sync/repos.conf`. All stay *outside* the repo (gitignored), so machine-specific
+  paths never leak into a public repo and updates never clobber your local setup.
 - **Safe to adopt and re-run.** `install.sh` is idempotent and backs up any real file it would
   replace to `*.bak`, so installing (or re-installing) never destroys existing config.
 - **`~/dotfiles`, not a fixed path.** Cloning to `~/dotfiles` resolves correctly for whatever
@@ -108,9 +108,10 @@ skip=~/instructions-private
 ```
 
 `repo` is a checkout to pull; `skip` is one you deliberately left out, listed in the output so
-it never looks forgotten. With neither key present, `repo-sync` falls back to its built-in
+it never looks forgotten. Both must be absolute or `~`-prefixed — a relative one is ignored with
+a warning, since it would name a different directory depending on where you ran from. With neither key present, `repo-sync` falls back to its built-in
 defaults, `~/instructions` and `~/instructions-private`, and asks about any path that is
-missing — the answer is written back here, so it only ever asks once.
+missing; an alternative path or a permanent skip is recorded here, so it stops asking.
 
 ### Naming this machine in claude.ai/code
 
@@ -216,11 +217,12 @@ $EDITOR ~/.config/repo-sync/repos.conf   # change the list by hand
 <branch>` — the same pull as the `pull` shell function — but only when it is a git repo with an
 `origin` remote, sitting on its own default branch (`origin/HEAD`, falling back to whichever of
 `main`/`master` exists) and with a clean working tree. Anything else is reported and skipped:
-dirty, detached, on a feature branch, not a repo, missing. A missing path is asked about once on
-a terminal — supply an alternative, skip it permanently, or leave it for now — and the answer is
-saved to `~/.config/repo-sync/repos.conf`, so later runs are silent. Piped and cron runs never
-prompt and never write to the config. Skips are normal and exit `0`; only a failed `git pull`
-exits non-zero.
+dirty, detached, on a feature branch, not a repo, missing. A missing path is asked about on a
+terminal: supplying an alternative or skipping it permanently is recorded in
+`~/.config/repo-sync/repos.conf` and stops the question; leaving it for now records no answer, so
+the next terminal run asks again. An alternative is stored as an absolute path, so it stays correct
+whatever directory you run from. Piped and cron runs never prompt and never write to the config.
+Skips are normal and exit `0`; only a failed `git pull` exits non-zero.
 
 If a repo is skipped as "not the default branch" but the named default looks wrong, the clone's
 `origin/HEAD` is stale (typically after a `master` → `main` rename upstream) — refresh it once

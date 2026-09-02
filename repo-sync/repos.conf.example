@@ -15,6 +15,10 @@
 # like the repo was forgotten.
 # skip=~/instructions-private
 
+# Paths must be absolute or '~'-prefixed. A relative one would mean a different directory
+# depending on where repo-sync was run from, so it is ignored with a warning.
+#
 # With no repo and no skip line here, repo-sync falls back to its built-in defaults,
-# ~/instructions and ~/instructions-private. A missing path is asked about once, on a
-# terminal, and the answer is written back into this file.
+# ~/instructions and ~/instructions-private. A missing path is asked about on a terminal:
+# an alternative path or a permanent skip is recorded in this file and stops the question,
+# while leaving it for now records no answer and asks again next time.
