@@ -13,12 +13,39 @@ PasswordAuthentication no
 # since some PAM stacks answer keyboard-interactive with a password prompt.
 KbdInteractiveAuthentication no
 
-# Deliberately NOT "no": on a single-admin box, root-with-key is how both
-# the operator and CI deploy keys get in, so "no" would lock out everything.
-# Pinned explicitly here so it survives a future change to the main
-# sshd_config rather than silently inheriting a different default.
+# PermitRootLogin: check the CURRENT value before installing this file.
+#
+#   sudo sshd -T | grep -i permitrootlogin
+#
+# IF IT ALREADY READS "no", DELETE THE LINE BELOW from your copy. This file
+# is included early and sshd takes the first value it finds, so leaving the
+# line in would override a stricter setting (cloud-init, a CIS/USG profile)
+# and quietly re-enable root SSH key login.
+#
+# Preferred posture: a non-root admin user with its own key plus sudo, and
+# then "PermitRootLogin no". That keeps sudo attribution in the logs and
+# stops one compromised key from being an instant uid-0 shell. Note that
+# "no" blocks root over SSH ONLY — root stays reachable via `sudo -i` or
+# `su` from any sudo-capable account, via the provider console, and via
+# rescue mode, which are the same paths the break-glass procedure uses.
+#
+# FALLBACK (what is set below): "prohibit-password", for a box that has no
+# non-root admin user yet — the common single-admin VPS case. It denies
+# password login for root while keeping key login, and is pinned explicitly
+# so a future change to the main sshd_config cannot move it underneath you.
+#
+# A root deploy key is NOT a reason to keep this: it makes any compromised
+# CI runner root on this box. Give CI a non-root deploy user and restrict
+# its key with command="..." in authorized_keys instead.
 PermitRootLogin prohibit-password
 
-# Port and ListenAddress deliberately do not appear here: on socket-activated
-# systemd (Ubuntu 22.10+, including 24.04) ssh.socket owns the listener, so
-# those directives in sshd_config have no effect.
+# Port / ListenAddress are deliberately not set here. Under systemd socket
+# activation they are still READ, but they do not take effect until the
+# socket is regenerated. On Ubuntu 24.04, sshd-socket-generator parses
+# sshd_config and generates ssh.socket's ListenStream=, so after changing
+# Port, AddressFamily or ListenAddress you must run:
+#   systemctl daemon-reload && systemctl restart ssh.socket
+# (Ubuntu 22.10-23.10 shipped socket activation before that generator; there
+# the directives really were inert and the port lived in the socket unit.)
+# Setting ListenStream= in a socket drop-in APPENDS unless you first reset
+# it with a bare "ListenStream=" line. Verify with: ss -ltnp | grep sshd
