@@ -1,0 +1,24 @@
+# Example sshd drop-in. Copy (do NOT symlink) to:
+#   /etc/ssh/sshd_config.d/10-hardening.conf
+# A symlink here means a later `git pull` silently rewrites live sshd policy.
+#
+# Apply only after confirming nothing on the box still relies on password
+# auth — see docs/server-hardening.md for the audit procedure to run first.
+
+# Makes SSH key-only: no password prompts over the wire.
+PasswordAuthentication no
+
+# Closes the PAM "keyboard-interactive" side-channel. Without this,
+# PasswordAuthentication no alone can still leave a password path open,
+# since some PAM stacks answer keyboard-interactive with a password prompt.
+KbdInteractiveAuthentication no
+
+# Deliberately NOT "no": on a single-admin box, root-with-key is how both
+# the operator and CI deploy keys get in, so "no" would lock out everything.
+# Pinned explicitly here so it survives a future change to the main
+# sshd_config rather than silently inheriting a different default.
+PermitRootLogin prohibit-password
+
+# Port and ListenAddress deliberately do not appear here: on socket-activated
+# systemd (Ubuntu 22.10+, including 24.04) ssh.socket owns the listener, so
+# those directives in sshd_config have no effect.
