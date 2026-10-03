@@ -248,3 +248,8 @@ site-tmux --update            # git pull + re-run install.sh
 Because the files are symlinked, a `git pull` applies changes to `site-tmux` instantly;
 `--update` just runs the pull and reinstall for you (also re-links if files were added).
 Your per-machine `sites.conf`, `sources.conf` and `repos.conf` are never touched by updates.
+
+## Documentation
+
+- **[`docs/server-hardening.md`](docs/server-hardening.md)** — hardening a fresh VPS. Key-only
+  SSH, with the audit-first procedure that proves it is safe to apply before you apply it.
